@@ -75,6 +75,7 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 use std::time::Duration;
 
+use http::header::{HeaderName};
 use async_trait::async_trait;
 use base64::Engine;
 use jsonrpsee::core::client::ClientT;
@@ -226,7 +227,7 @@ impl SuiClientBuilder {
 
         if let Some((key, value)) = self.extra_header {
             headers.insert(
-                key.leak(),
+                HeaderName::from_bytes(key.as_bytes()).unwrap(),
                 HeaderValue::from_str(&value).unwrap(),
             );
         }
