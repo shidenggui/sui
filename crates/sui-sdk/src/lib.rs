@@ -141,6 +141,7 @@ pub struct SuiClientBuilder {
     ws_url: Option<String>,
     ws_ping_interval: Option<Duration>,
     basic_auth: Option<(String, String)>,
+    extra_header: Option<(String, String)>,
 }
 
 impl Default for SuiClientBuilder {
@@ -151,6 +152,7 @@ impl Default for SuiClientBuilder {
             ws_url: None,
             ws_ping_interval: None,
             basic_auth: None,
+            extra_header: None,
         }
     }
 }
@@ -186,6 +188,11 @@ impl SuiClientBuilder {
         self
     }
 
+    pub fn extra_header(mut self, key: impl AsRef<str>, vaule: impl AsRef<str>) -> Self {
+        self.extra_header = Some((key.as_ref().to_string(), value.as_ref().to_string()));
+        self
+    }
+
     /// Returns a [SuiClient] object connected to the Sui network running at the URI provided.
     ///
     /// # Examples
@@ -216,6 +223,13 @@ impl SuiClientBuilder {
             HeaderValue::from_static(client_version),
         );
         headers.insert(CLIENT_SDK_TYPE_HEADER, HeaderValue::from_static("rust"));
+
+        if let Some((key, vaule)) = self.extra_header {
+            headers.insert(
+                key.into(),
+                value.into(),
+            );
+        }
 
         if let Some((username, password)) = self.basic_auth {
             let auth = base64::engine::general_purpose::STANDARD
