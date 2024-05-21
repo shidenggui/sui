@@ -227,7 +227,7 @@ impl SuiClientBuilder {
 
         if let Some((key, value)) = self.extra_header {
             headers.insert(
-                HeaderName::from_str(key.as_str()).unwrap(),
+                HeaderName::from_static(key.leak()),
                 HeaderValue::from_str(&value).unwrap(),
             );
         }
