@@ -224,7 +224,7 @@ impl SuiClientBuilder {
         );
         headers.insert(CLIENT_SDK_TYPE_HEADER, HeaderValue::from_static("rust"));
 
-        if let Some((key, vaule)) = self.extra_header {
+        if let Some((key, value)) = self.extra_header {
             headers.insert(
                 key.into(),
                 value.into(),
