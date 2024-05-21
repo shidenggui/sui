@@ -75,11 +75,10 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 use std::time::Duration;
 
-use http::header::{HeaderName};
 use async_trait::async_trait;
 use base64::Engine;
 use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::{HeaderMap, HeaderValue, HttpClient, HttpClientBuilder};
+use jsonrpsee::http_client::{HeaderMap, HeaderValue, HeaderName, HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use serde_json::Value;
