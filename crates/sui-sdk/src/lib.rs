@@ -188,7 +188,7 @@ impl SuiClientBuilder {
         self
     }
 
-    pub fn extra_header(mut self, key: impl AsRef<str>, vaule: impl AsRef<str>) -> Self {
+    pub fn extra_header(mut self, key: impl AsRef<str>, value: impl AsRef<str>) -> Self {
         self.extra_header = Some((key.as_ref().to_string(), value.as_ref().to_string()));
         self
     }
