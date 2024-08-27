@@ -35,7 +35,7 @@ fn test_metered_move_bytecode_verifier() {
 
     let protocol_config = ProtocolConfig::get_for_max_version_UNSAFE();
     let mut verifier_config = protocol_config.verifier_config(/* for_signing */ true);
-    let mut meter_config = protocol_config.meter_config();
+    let mut meter_config = protocol_config.meter_config_for_signing();
     let registry = &Registry::new();
     let bytecode_verifier_metrics = Arc::new(BytecodeVerifierMetrics::new(registry));
     let mut meter = SuiVerifierMeter::new(meter_config.clone());
@@ -191,20 +191,18 @@ fn test_metered_move_bytecode_verifier() {
     // Check shared meter logic works across all publish in PT
     let mut packages = vec![];
     let with_unpublished_deps = false;
-    let path =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sui_programmability/examples/basics");
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/move/basics");
     let package = build(&path).unwrap();
     packages.push(package.get_dependency_sorted_modules(with_unpublished_deps));
     packages.push(package.get_dependency_sorted_modules(with_unpublished_deps));
 
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../sui_programmability/examples/fungible_tokens");
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/move/coin");
     let package = build(&path).unwrap();
     packages.push(package.get_dependency_sorted_modules(with_unpublished_deps));
 
     let protocol_config = ProtocolConfig::get_for_max_version_UNSAFE();
     let verifier_config = protocol_config.verifier_config(/* for_signing */ true);
-    let meter_config = protocol_config.meter_config();
+    let meter_config = protocol_config.meter_config_for_signing();
 
     // Check if the same meter is indeed used multiple invocations of the verifier
     let mut meter = SuiVerifierMeter::new(meter_config);
@@ -231,7 +229,7 @@ fn test_meter_system_packages() {
 
     let protocol_config = ProtocolConfig::get_for_max_version_UNSAFE();
     let verifier_config = protocol_config.verifier_config(/* for_signing */ true);
-    let meter_config = protocol_config.meter_config();
+    let meter_config = protocol_config.meter_config_for_signing();
     let registry = &Registry::new();
     let bytecode_verifier_metrics = Arc::new(BytecodeVerifierMetrics::new(registry));
     let mut meter = SuiVerifierMeter::new(meter_config);
@@ -285,11 +283,10 @@ fn test_build_and_verify_programmability_examples() {
 
     let protocol_config = ProtocolConfig::get_for_max_version_UNSAFE();
     let verifier_config = protocol_config.verifier_config(/* for_signing */ true);
-    let meter_config = protocol_config.meter_config();
+    let meter_config = protocol_config.meter_config_for_signing();
     let registry = &Registry::new();
     let bytecode_verifier_metrics = Arc::new(BytecodeVerifierMetrics::new(registry));
-    let examples =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sui_programmability/examples");
+    let examples = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples");
 
     for example in std::fs::read_dir(examples).unwrap() {
         let Ok(example) = example else { continue };

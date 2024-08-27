@@ -88,6 +88,12 @@ gen_eth_events!(
 
 gen_eth_events!(EthBridgeVault, "abi/bridge_vault.json");
 
+abigen!(
+    EthERC20,
+    "abi/erc20.json",
+    event_derives(serde::Deserialize, serde::Serialize)
+);
+
 impl EthBridgeEvent {
     pub fn try_into_bridge_action(
         self,
@@ -332,7 +338,7 @@ mod tests {
             nonce: 0,
             chain_id: BridgeChainId::EthSepolia,
             blocklist_type: BlocklistType::Blocklist,
-            blocklisted_members: vec![pub_key_bytes],
+            members_to_update: vec![pub_key_bytes],
         };
         let message: eth_bridge_committee::Message = action.into();
         assert_eq!(

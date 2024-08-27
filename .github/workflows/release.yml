@@ -2,7 +2,7 @@ name: Attach Sui binaries to a release
 
 on:
   release:
-    types: [ published ]
+    types: [ published, prereleased ]
   workflow_dispatch:
     inputs:
       sui_tag:
@@ -112,13 +112,6 @@ jobs:
         if: ${{ matrix.os == 'windows-ghcloud' && env.s3_archive_exist == '' }}
         uses: taiki-e/install-action@33022ba120c3f523d134bbbee12278fc11a3df1a # pin@nextest
 
-      - name: Setup protoc (Windows)
-        if: ${{ matrix.os == 'windows-ghcloud' && env.s3_archive_exist == '' }}
-        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # pin@v3.0.0
-        # this avoids rate-limiting
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Install postgres (Windows)
         if: ${{ matrix.os == 'windows-ghcloud' && env.s3_archive_exist == '' }}
         shell: bash
@@ -145,6 +138,7 @@ jobs:
         if: ${{ env.s3_archive_exist == '' }}
         shell: bash
         run: |
+          [ -f ~/.cargo/env ] && source ~/.cargo/env ; cargo build --bin sui --release --features indexer && mv target/release/sui target/release/sui-pg
           [ -f ~/.cargo/env ] && source ~/.cargo/env ; cargo build --release && cargo build --profile=dev --bin sui
 
       - name: Rename binaries for ${{ matrix.os }}
@@ -159,13 +153,16 @@ jobs:
             mv ./target/release/${binary}${{ env.extention }} ${{ env.TMP_BUILD_DIR }}/${binary}${{ env.extention }}
           done
 
+          # sui-pg is a special binary that is built with the indexer feature for sui start cmd
+          export binary=$(echo "sui-pg" | tr -d $'\r')
+          mv ./target/release/${binary}${{ env.extention }} ${{ env.TMP_BUILD_DIR }}/${binary}${{ env.extention }}
+
           mv ./target/debug/sui${{ env.extention }} ${{ env.TMP_BUILD_DIR }}/sui-debug${{ env.extention }}
           tar -cvzf ./tmp/sui-${{ env.sui_tag }}-${{ env.os_type }}.tgz -C ${{ env.TMP_BUILD_DIR }} .
           [[ ${{ env.sui_tag }} == *"testnet"* ]] && aws s3 cp ./tmp/sui-${{ env.sui_tag }}-${{ env.os_type }}.tgz s3://sui-releases/releases/sui-${{ env.sui_tag }}-${{ env.os_type }}.tgz || true
 
       - name: Publish Windows sui binary to Chocolatey
-        if: ${{ matrix.os == 'windows-ghcloud' && contains( env.sui_tag, 'testnet') }}
-        continue-on-error: true
+        if: ${{ matrix.os == 'windows-ghcloud' && contains(env.sui_tag, 'testnet') }}
         shell: bash
         run: |
           choco install checksum
@@ -174,9 +171,9 @@ jobs:
 
           cat <<EOF >>VERIFICATION.txt
           Sui Binary verification steps
-          1. Go to https://github.com/MystenLabs/sui/releases/download/${{ env.sui_tag }}/sui-${{ env.sui_tag }}-windows-x86_64.tgz
-          2. Extract sui-windows-x86_64.exe
-          3. checksum.exe -t sha256 sui-windows-x86_64.exe: ${sui_sha}
+          1. Download https://github.com/MystenLabs/sui/releases/download/${{ env.sui_tag }}/sui-${{ env.sui_tag }}-windows-x86_64.tgz
+          2. Extract sui.exe
+          3. Verify binary: checksum.exe -t sha256 sui.exe: ${sui_sha}
 
           File 'LICENSE.txt' is obtained from: https://github.com/MystenLabs/sui/blob/main/LICENSE
           EOF

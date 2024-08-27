@@ -9,8 +9,14 @@ use sui_types::digests::CheckpointDigest;
 use sui_types::gas::GasCostSummary;
 
 use crate::errors::IndexerError;
-use crate::schema::checkpoints;
+use crate::schema::{chain_identifier, checkpoints, pruner_cp_watermark};
 use crate::types::IndexedCheckpoint;
+
+#[derive(Queryable, Insertable, Selectable, Debug, Clone, Default)]
+#[diesel(table_name = chain_identifier)]
+pub struct StoredChainIdentifier {
+    pub checkpoint_digest: Vec<u8>,
+}
 
 #[derive(Queryable, Insertable, Selectable, Debug, Clone, Default)]
 #[diesel(table_name = checkpoints)]
@@ -36,6 +42,8 @@ pub struct StoredCheckpoint {
     pub checkpoint_commitments: Vec<u8>,
     pub validator_signature: Vec<u8>,
     pub end_of_epoch_data: Option<Vec<u8>>,
+    pub min_tx_sequence_number: Option<i64>,
+    pub max_tx_sequence_number: Option<i64>,
 }
 
 impl From<&IndexedCheckpoint> for StoredCheckpoint {
@@ -77,6 +85,8 @@ impl From<&IndexedCheckpoint> for StoredCheckpoint {
                 .as_ref()
                 .map(|d| bcs::to_bytes(d).unwrap()),
             end_of_epoch: c.end_of_epoch_data.is_some(),
+            min_tx_sequence_number: Some(c.min_tx_sequence_number as i64),
+            max_tx_sequence_number: Some(c.max_tx_sequence_number as i64),
         }
     }
 }
@@ -203,5 +213,23 @@ impl TryFrom<StoredCheckpoint> for RpcCheckpoint {
             validator_signature,
             checkpoint_commitments,
         })
+    }
+}
+
+#[derive(Queryable, Insertable, Selectable, Debug, Clone, Default)]
+#[diesel(table_name = pruner_cp_watermark)]
+pub struct StoredCpTx {
+    pub checkpoint_sequence_number: i64,
+    pub min_tx_sequence_number: i64,
+    pub max_tx_sequence_number: i64,
+}
+
+impl From<&IndexedCheckpoint> for StoredCpTx {
+    fn from(c: &IndexedCheckpoint) -> Self {
+        Self {
+            checkpoint_sequence_number: c.sequence_number as i64,
+            min_tx_sequence_number: c.min_tx_sequence_number as i64,
+            max_tx_sequence_number: c.max_tx_sequence_number as i64,
+        }
     }
 }

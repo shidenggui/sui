@@ -24,6 +24,7 @@ use crate::handlers::checkpoint_handler::new_handlers;
 use crate::handlers::objects_snapshot_processor::{
     start_objects_snapshot_processor, SnapshotLagConfig,
 };
+use crate::handlers::pruner::Pruner;
 use crate::indexer_reader::IndexerReader;
 use crate::metrics::IndexerMetrics;
 use crate::store::IndexerStore;
@@ -107,6 +108,27 @@ impl Indexer {
                 cancel.clone(),
             )
             .await?;
+
+        let epochs_to_keep = std::env::var("EPOCHS_TO_KEEP")
+            .map(|s| s.parse::<u64>().ok())
+            .unwrap_or_else(|_e| None);
+        if let Some(epochs_to_keep) = epochs_to_keep {
+            info!(
+                "Starting indexer pruner with epochs to keep: {}",
+                epochs_to_keep
+            );
+            assert!(epochs_to_keep > 0, "Epochs to keep must be positive");
+            let pruner: Pruner<S, T> = Pruner::new(store.clone(), epochs_to_keep, metrics.clone())?;
+            spawn_monitored_task!(pruner.start(CancellationToken::new()));
+        }
+
+        // If we already have chain identifier indexed (i.e. the first checkpoint has been indexed),
+        // then we persist protocol configs for protocol versions not yet in the db.
+        // Otherwise, we would do the persisting in `commit_checkpoint` while the first cp is
+        // being indexed.
+        if let Some(chain_id) = store.get_chain_identifier().await? {
+            store.persist_protocol_configs_and_feature_flags(chain_id)?;
+        }
 
         let cancel_clone = cancel.clone();
         let (exit_sender, exit_receiver) = oneshot::channel();

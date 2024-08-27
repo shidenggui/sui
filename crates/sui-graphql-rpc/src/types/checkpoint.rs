@@ -5,14 +5,15 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use super::{
     base64::Base64,
-    cursor::{self, Page, Paginated, Target},
+    cursor::{self, Page, Paginated, ScanLimited, Target},
     date_time::DateTime,
     digest::Digest,
     epoch::Epoch,
     gas::GasCostSummary,
     transaction_block::{self, TransactionBlock, TransactionBlockFilter},
+    uint53::UInt53,
 };
-use crate::consistency::Checkpointed;
+use crate::{connection::ScanConnection, consistency::Checkpointed};
 use crate::{
     data::{self, Conn, DataLoader, Db, DbConnection, QueryExecutor},
     error::Error,
@@ -32,10 +33,10 @@ use sui_types::messages_checkpoint::CheckpointDigest;
 #[derive(Default, InputObject)]
 pub(crate) struct CheckpointId {
     pub digest: Option<Digest>,
-    pub sequence_number: Option<u64>,
+    pub sequence_number: Option<UInt53>,
 }
 
-/// DataLoader key for fetching a `Checkpoint` by its sequence number, constrained by a consistency
+/// `DataLoader` key for fetching a `Checkpoint` by its sequence number, constrained by a consistency
 /// cursor.
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 struct SeqNumKey {
@@ -46,7 +47,7 @@ struct SeqNumKey {
     pub checkpoint_viewed_at: u64,
 }
 
-/// DataLoader key for fetching a `Checkpoint` by its digest, constrained by a consistency cursor.
+/// `DataLoader` key for fetching a `Checkpoint` by its digest, constrained by a consistency cursor.
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 struct DigestKey {
     pub digest: Digest,
@@ -90,8 +91,8 @@ impl Checkpoint {
 
     /// This checkpoint's position in the total order of finalized checkpoints, agreed upon by
     /// consensus.
-    async fn sequence_number(&self) -> u64 {
-        self.sequence_number_impl()
+    async fn sequence_number(&self) -> UInt53 {
+        self.sequence_number_impl().into()
     }
 
     /// The timestamp at which the checkpoint is agreed to have happened according to consensus.
@@ -115,8 +116,8 @@ impl Checkpoint {
     }
 
     /// The total number of transaction blocks in the network by the end of this checkpoint.
-    async fn network_total_transactions(&self) -> Option<u64> {
-        Some(self.network_total_transactions_impl())
+    async fn network_total_transactions(&self) -> Option<UInt53> {
+        Some(self.network_total_transactions_impl().into())
     }
 
     /// The computation cost, storage cost, storage rebate, and non-refundable storage fee
@@ -143,6 +144,23 @@ impl Checkpoint {
     }
 
     /// Transactions in this checkpoint.
+    ///
+    /// `scanLimit` restricts the number of candidate transactions scanned when gathering a page of
+    /// results. It is required for queries that apply more than two complex filters (on function,
+    /// kind, sender, recipient, input object, changed object, or ids), and can be at most
+    /// `serviceConfig.maxScanLimit`.
+    ///
+    /// When the scan limit is reached the page will be returned even if it has fewer than `first`
+    /// results when paginating forward (`last` when paginating backwards). If there are more
+    /// transactions to scan, `pageInfo.hasNextPage` (or `pageInfo.hasPreviousPage`) will be set to
+    /// `true`, and `PageInfo.endCursor` (or `PageInfo.startCursor`) will be set to the last
+    /// transaction that was scanned as opposed to the last (or first) transaction in the page.
+    ///
+    /// Requesting the next (or previous) page after this cursor will resume the search, scanning
+    /// the next `scanLimit` many transactions in the direction of pagination, and so on until all
+    /// transactions in the scanning range have been visited.
+    ///
+    /// By default, the scanning range consists of all transactions in this checkpoint.
     async fn transaction_blocks(
         &self,
         ctx: &Context<'_>,
@@ -151,34 +169,30 @@ impl Checkpoint {
         last: Option<u64>,
         before: Option<transaction_block::Cursor>,
         filter: Option<TransactionBlockFilter>,
-    ) -> Result<Connection<String, TransactionBlock>> {
+        scan_limit: Option<u64>,
+    ) -> Result<ScanConnection<String, TransactionBlock>> {
         let page = Page::from_params(ctx.data_unchecked(), first, after, last, before)?;
 
         let Some(filter) = filter
             .unwrap_or_default()
             .intersect(TransactionBlockFilter {
-                at_checkpoint: Some(self.stored.sequence_number as u64),
+                at_checkpoint: Some(UInt53::from(self.stored.sequence_number as u64)),
                 ..Default::default()
             })
         else {
-            return Ok(Connection::new(false, false));
+            return Ok(ScanConnection::new(false, false));
         };
 
-        TransactionBlock::paginate(
-            ctx.data_unchecked(),
-            page,
-            filter,
-            self.checkpoint_viewed_at,
-        )
-        .await
-        .extend()
+        TransactionBlock::paginate(ctx, page, filter, self.checkpoint_viewed_at, scan_limit)
+            .await
+            .extend()
     }
 }
 
 impl CheckpointId {
     pub(crate) fn by_seq_num(seq_num: u64) -> Self {
         CheckpointId {
-            sequence_number: Some(seq_num),
+            sequence_number: Some(seq_num.into()),
             digest: None,
         }
     }
@@ -213,7 +227,7 @@ impl Checkpoint {
             } => {
                 let DataLoader(dl) = ctx.data_unchecked();
                 dl.load_one(SeqNumKey {
-                    sequence_number,
+                    sequence_number: sequence_number.into(),
                     digest,
                     checkpoint_viewed_at,
                 })
@@ -371,6 +385,8 @@ impl Checkpointed for Cursor {
         self.checkpoint_viewed_at
     }
 }
+
+impl ScanLimited for Cursor {}
 
 #[async_trait::async_trait]
 impl Loader<SeqNumKey> for Db {

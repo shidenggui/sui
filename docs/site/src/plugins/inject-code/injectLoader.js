@@ -51,6 +51,9 @@ const addCodeInject = function (source) {
             case "tsx":
               language = "ts";
               break;
+            case "rs":
+              language = "rust";
+              break;
             default:
               language = fileExt;
           }
@@ -114,7 +117,7 @@ const addCodeInject = function (source) {
                 let structContent = [];
                 for (let struct of structs) {
                   struct = struct.trim();
-                  const structStr = `^(\\s*)*?(public )?struct \\b${struct}\\b.*?}`;
+                  const structStr = `^(\\s*)*?(pub(lic)? )?struct \\b${struct}\\b.*?}`;
                   const structRE = new RegExp(structStr, "msi");
                   const structMatch = structRE.exec(injectFileContent);
                   if (structMatch) {

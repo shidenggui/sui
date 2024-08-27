@@ -1,8 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::Instant;
-
 use super::QueryExecutor;
 use crate::{config::Limits, error::Error, metrics::Metrics};
 use async_trait::async_trait;
@@ -12,6 +10,8 @@ use diesel::{
     query_dsl::LoadQuery,
     QueryResult, RunQueryDsl,
 };
+use std::fmt;
+use std::time::Instant;
 use sui_indexer::indexer_reader::IndexerReader;
 
 use sui_indexer::{run_query_async, run_query_repeatable_async, spawn_read_only_blocking};
@@ -25,9 +25,11 @@ pub(crate) struct PgExecutor {
 }
 
 pub(crate) struct PgConnection<'c> {
-    max_cost: u64,
+    max_cost: u32,
     conn: &'c mut diesel::PgConnection,
 }
+
+pub(crate) struct ByteaLiteral<'a>(pub &'a [u8]);
 
 impl PgExecutor {
     pub(crate) fn new(
@@ -118,6 +120,16 @@ impl<'c> super::DbConnection for PgConnection<'c> {
     }
 }
 
+impl fmt::Display for ByteaLiteral<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "'\\x{}'::bytea", hex::encode(self.0))
+    }
+}
+
+pub(crate) fn bytea_literal(slice: &[u8]) -> ByteaLiteral<'_> {
+    ByteaLiteral(slice)
+}
+
 /// Support for calculating estimated query cost using EXPLAIN and then logging it.
 mod query_cost {
     use super::*;
@@ -147,7 +159,7 @@ mod query_cost {
     }
 
     /// Run `EXPLAIN` on the `query`, and log the estimated cost.
-    pub(crate) fn log<Q>(conn: &mut PgConnection, max_db_query_cost: u64, query: Q)
+    pub(crate) fn log<Q>(conn: &mut PgConnection, max_db_query_cost: u32, query: Q)
     where
         Q: Query + QueryId + QueryFragment<Pg> + RunQueryDsl<PgConnection>,
     {
@@ -189,7 +201,7 @@ mod query_cost {
 #[cfg(all(test, feature = "pg_integration"))]
 mod tests {
     use super::*;
-    use crate::config::DEFAULT_SERVER_DB_URL;
+    use crate::config::ConnectionConfig;
     use diesel::QueryDsl;
     use sui_framework::BuiltInFramework;
     use sui_indexer::{
@@ -201,10 +213,14 @@ mod tests {
 
     #[test]
     fn test_query_cost() {
-        let pool =
-            new_connection_pool::<diesel::PgConnection>(DEFAULT_SERVER_DB_URL, Some(5)).unwrap();
+        let connection_config = ConnectionConfig::default();
+        let pool = new_connection_pool::<diesel::PgConnection>(
+            &connection_config.db_url,
+            Some(connection_config.db_pool_size),
+        )
+        .unwrap();
         let mut conn = get_pool_connection(&pool).unwrap();
-        reset_database(&mut conn, /* drop_all */ true).unwrap();
+        reset_database(&mut conn).unwrap();
 
         let objects: Vec<StoredObject> = BuiltInFramework::iter_system_packages()
             .map(|pkg| IndexedObject::from_object(1, pkg.genesis_object(), None).into())

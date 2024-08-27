@@ -5,6 +5,9 @@ use crate::abi::EthBridgeConfig;
 use crate::crypto::BridgeAuthorityKeyPair;
 use crate::error::BridgeError;
 use crate::eth_client::EthClient;
+use crate::metered_eth_provider::new_metered_eth_provider;
+use crate::metered_eth_provider::MeteredEthHttpProvier;
+use crate::metrics::BridgeMetrics;
 use crate::sui_client::SuiClient;
 use crate::types::{is_route_valid, BridgeAction};
 use crate::utils::get_eth_contract_addresses;
@@ -118,6 +121,7 @@ impl Config for BridgeNodeConfig {}
 impl BridgeNodeConfig {
     pub async fn validate(
         &self,
+        metrics: Arc<BridgeMetrics>,
     ) -> anyhow::Result<(BridgeServerConfig, Option<BridgeClientConfig>)> {
         if !is_route_valid(
             BridgeChainId::try_from(self.sui.sui_bridge_chain_id)?,
@@ -148,7 +152,7 @@ impl BridgeNodeConfig {
             ));
         }
 
-        let (eth_client, eth_contracts) = self.prepare_for_eth().await?;
+        let (eth_client, eth_contracts) = self.prepare_for_eth(metrics).await?;
         let bridge_summary = sui_client
             .get_bridge_summary()
             .await
@@ -218,10 +222,11 @@ impl BridgeNodeConfig {
 
     async fn prepare_for_eth(
         &self,
-    ) -> anyhow::Result<(Arc<EthClient<ethers::providers::Http>>, Vec<EthAddress>)> {
+        metrics: Arc<BridgeMetrics>,
+    ) -> anyhow::Result<(Arc<EthClient<MeteredEthHttpProvier>>, Vec<EthAddress>)> {
         let bridge_proxy_address = EthAddress::from_str(&self.eth.eth_bridge_proxy_address)?;
         let provider = Arc::new(
-            ethers::prelude::Provider::<ethers::providers::Http>::try_from(&self.eth.eth_rpc_url)
+            new_metered_eth_provider(&self.eth.eth_rpc_url, metrics.clone())
                 .unwrap()
                 .interval(std::time::Duration::from_millis(2000)),
         );
@@ -265,7 +270,7 @@ impl BridgeNodeConfig {
         );
 
         let eth_client = Arc::new(
-            EthClient::<ethers::providers::Http>::new(
+            EthClient::<MeteredEthHttpProvier>::new(
                 &self.eth.eth_rpc_url,
                 HashSet::from_iter(vec![
                     bridge_proxy_address,
@@ -274,6 +279,7 @@ impl BridgeNodeConfig {
                     limiter_address,
                     vault_address,
                 ]),
+                metrics,
             )
             .await?,
         );
@@ -362,7 +368,7 @@ pub struct BridgeServerConfig {
     pub server_listen_port: u16,
     pub metrics_port: u16,
     pub sui_client: Arc<SuiClient<SuiSdkClient>>,
-    pub eth_client: Arc<EthClient<ethers::providers::Http>>,
+    pub eth_client: Arc<EthClient<MeteredEthHttpProvier>>,
     /// A list of approved governance actions. Action in this list will be signed when requested by client.
     pub approved_governance_actions: Vec<BridgeAction>,
 }
@@ -374,7 +380,7 @@ pub struct BridgeClientConfig {
     pub gas_object_ref: ObjectRef,
     pub metrics_port: u16,
     pub sui_client: Arc<SuiClient<SuiSdkClient>>,
-    pub eth_client: Arc<EthClient<ethers::providers::Http>>,
+    pub eth_client: Arc<EthClient<MeteredEthHttpProvier>>,
     pub db_path: PathBuf,
     pub eth_contracts: Vec<EthAddress>,
     // See `BridgeNodeConfig` for the explanation of following two fields.
