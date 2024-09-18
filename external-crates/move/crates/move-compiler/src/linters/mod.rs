@@ -11,10 +11,13 @@ use crate::{
     typing::visitor::TypingVisitor,
 };
 
-mod constant_naming;
-mod meaningless_math_operation;
-mod unnecessary_while_loop;
-mod unneeded_return;
+pub mod abort_constant;
+pub mod constant_naming;
+pub mod loop_without_exit;
+pub mod meaningless_math_operation;
+pub mod unnecessary_conditional;
+pub mod unnecessary_while_loop;
+pub mod unneeded_return;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LintLevel {
@@ -102,7 +105,7 @@ lints!(
     ),
     (
         WhileTrueToLoop,
-        LinterDiagnosticCategory::Complexity,
+        LinterDiagnosticCategory::Style,
         "while_true",
         "unnecessary 'while (true)', replace with 'loop'"
     ),
@@ -118,6 +121,24 @@ lints!(
         "unneeded_return",
         "unneeded return"
     ),
+    (
+        AbortWithoutConstant,
+        LinterDiagnosticCategory::Style,
+        "abort_without_constant",
+        "'abort' or 'assert' without named constant"
+    ),
+    (
+        LoopWithoutExit,
+        LinterDiagnosticCategory::Suspicious,
+        "loop_without_exit",
+        "'loop' without 'break' or 'return'"
+    ),
+    (
+        UnnecessaryConditional,
+        LinterDiagnosticCategory::Complexity,
+        "unnecessary_conditional",
+        "'if' expression can be removed"
+    )
 );
 
 pub const ALLOW_ATTR_CATEGORY: &str = "lint";
@@ -149,6 +170,9 @@ pub fn linter_visitors(level: LintLevel) -> Vec<Visitor> {
                 unnecessary_while_loop::WhileTrueToLoop.visitor(),
                 meaningless_math_operation::MeaninglessMathOperation.visitor(),
                 unneeded_return::UnneededReturnVisitor.visitor(),
+                abort_constant::AssertAbortNamedConstants.visitor(),
+                loop_without_exit::LoopWithoutExit.visitor(),
+                unnecessary_conditional::UnnecessaryConditional.visitor(),
             ]
         }
     }

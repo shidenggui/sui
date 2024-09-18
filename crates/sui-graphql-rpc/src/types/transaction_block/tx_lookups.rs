@@ -1,6 +1,55 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! # Transaction Filter Lookup Tables
+//!
+//! ## Schemas
+//!
+//! Tables backing Transaction filters in GraphQL all follow the same rough shape:
+//!
+//! 1. They each get their own table, mapping the filter value to the transaction sequence number.
+//!
+//! 2. They also include a `sender` column, and a secondary index over the sender, filter values
+//!    and the transaction sequence number.
+//!
+//! 3. They also include a secondary index over the transaction sequence number.
+//!
+//! This pattern allows us to offer a simple rule for users: If you are filtering on a single
+//! value, you can do so without worrying. If you want to additionally filter by the sender, that
+//! is also possible, but if you want to combine any other set of filters, you need to use a "scan
+//! limit".
+//!
+//! ## Query construction
+//!
+//! Queries that filter transactions work in two phases: Identify the transaction sequence numbers
+//! to fetch, and then fetch their contents. Filtering all happens in the first phase:
+//!
+//! - Firstly filters are broken down into individual queries targeting the appropriate lookup
+//!   table. Each constituent query is expected to return a sorted run of transaction sequence
+//!   numbers.
+//!
+//! - If a `sender` filter is included, then it is incorporated into each constituent query,
+//!   leveraging their secondary indices (2), otherwise each constituent query filters only based on
+//!   its filter value using the primary index (1).
+//!
+//! - The fact that both the primary and secondary indices contain the transaction sequence number
+//!   help to ensure that the output from an index scan is already sorted, which avoids a
+//!   potentially expensive materialize and sort operation.
+//!
+//! - If there are multiple constituent queries, they are intersected using inner joins. Postgres
+//!   can occasionally pick a poor query plan for this merge, so we require that filters resulting in
+//!   such merges also use a "scan limit" (see below).
+//!
+//! ## Scan limits
+//!
+//! The scan limit restricts the number of transactions considered as candidates for the results.
+//! It is analogous to the page size limit, which restricts the number of results returned to the
+//! user, but it operates at the top of the funnel rather than the top.
+//!
+//! When postgres picks a poor query plan, it can end up performing a sequential scan over all
+//! candidate transactions. By limiting the size of the candidate set, we bound the work done in
+//! the worse case (whereas otherwise, the worst case would grow with the history of the chain).
+
 use super::{Cursor, TransactionBlockFilter};
 use crate::{
     data::{pg::bytea_literal, Conn, DbConnection},
@@ -82,8 +131,8 @@ impl TxBounds {
     /// `checkpoint_viewed_at`. The corresponding `tx_sequence_number` range is fetched from db, and
     /// further adjusted by cursors and scan limit. If there are any inconsistencies or invalid
     /// combinations, i.e. `after` cursor is greater than the upper bound, return None.
-    pub(crate) fn query(
-        conn: &mut Conn,
+    pub(crate) async fn query(
+        conn: &mut Conn<'_>,
         cp_after: Option<u64>,
         cp_at: Option<u64>,
         cp_before: Option<u64>,
@@ -111,12 +160,14 @@ impl TxBounds {
 
         use checkpoints::dsl;
         let (tx_lo, tx_hi) = if let Some(cp_prev) = cp_lo.checked_sub(1) {
-            let res: Vec<i64> = conn.results(move || {
-                dsl::checkpoints
-                    .select(dsl::network_total_transactions)
-                    .filter(dsl::sequence_number.eq_any([cp_prev as i64, cp_hi as i64]))
-                    .order_by(dsl::network_total_transactions.asc())
-            })?;
+            let res: Vec<i64> = conn
+                .results(move || {
+                    dsl::checkpoints
+                        .select(dsl::network_total_transactions)
+                        .filter(dsl::sequence_number.eq_any([cp_prev as i64, cp_hi as i64]))
+                        .order_by(dsl::network_total_transactions.asc())
+                })
+                .await?;
 
             // If there are not two distinct results, it means that the transaction bounds are
             // empty (lo and hi are the same), or it means that the one or other of the checkpoints
@@ -133,6 +184,7 @@ impl TxBounds {
                         .select(dsl::network_total_transactions)
                         .filter(dsl::sequence_number.eq(cp_hi as i64))
                 })
+                .await
                 .optional()?;
 
             // If there is no result, it means that the checkpoint doesn't exist, so we can return

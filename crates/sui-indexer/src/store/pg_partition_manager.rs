@@ -1,22 +1,20 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use diesel::r2d2::R2D2Connection;
 use diesel::sql_types::{BigInt, VarChar};
-use diesel::{QueryableByName, RunQueryDsl};
+use diesel::QueryableByName;
+use diesel_async::scoped_futures::ScopedFutureExt;
 use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 use tracing::{error, info};
 
-use crate::db::ConnectionPool;
+use crate::database::ConnectionPool;
 use crate::errors::IndexerError;
 use crate::handlers::EpochToCommit;
 use crate::models::epoch::StoredEpochInfo;
-use crate::store::diesel_macro::*;
-use downcast::Any;
+use crate::store::transaction_with_retry;
 
-const GET_PARTITION_SQL: &str = if cfg!(feature = "postgres-feature") {
-    r"
+const GET_PARTITION_SQL: &str = r"
 SELECT parent.relname                                            AS table_name,
        MIN(CAST(SUBSTRING(child.relname FROM '\d+$') AS BIGINT)) AS first_partition,
        MAX(CAST(SUBSTRING(child.relname FROM '\d+$') AS BIGINT)) AS last_partition
@@ -27,33 +25,13 @@ FROM pg_inherits
          JOIN pg_namespace nmsp_child ON nmsp_child.oid = child.relnamespace
 WHERE parent.relkind = 'p'
 GROUP BY table_name;
-"
-} else if cfg!(feature = "mysql-feature") && cfg!(not(feature = "postgres-feature")) {
-    r"
-SELECT TABLE_NAME AS table_name,
-       MIN(CAST(SUBSTRING_INDEX(PARTITION_NAME, '_', -1) AS UNSIGNED)) AS first_partition,
-       MAX(CAST(SUBSTRING_INDEX(PARTITION_NAME, '_', -1) AS UNSIGNED)) AS last_partition
-FROM information_schema.PARTITIONS
-WHERE TABLE_SCHEMA = DATABASE()
-AND PARTITION_NAME IS NOT NULL
-GROUP BY table_name;
-"
-} else {
-    ""
-};
+";
 
-pub struct PgPartitionManager<T: R2D2Connection + 'static> {
-    cp: ConnectionPool<T>,
+#[derive(Clone)]
+pub struct PgPartitionManager {
+    pool: ConnectionPool,
+
     partition_strategies: HashMap<&'static str, PgPartitionStrategy>,
-}
-
-impl<T: R2D2Connection> Clone for PgPartitionManager<T> {
-    fn clone(&self) -> PgPartitionManager<T> {
-        Self {
-            cp: self.cp.clone(),
-            partition_strategies: self.partition_strategies.clone(),
-        }
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -107,26 +85,20 @@ impl EpochPartitionData {
     }
 }
 
-impl<T: R2D2Connection> PgPartitionManager<T> {
-    pub fn new(cp: ConnectionPool<T>) -> Result<Self, IndexerError> {
+impl PgPartitionManager {
+    pub fn new(pool: ConnectionPool) -> Result<Self, IndexerError> {
         let mut partition_strategies = HashMap::new();
         partition_strategies.insert("events", PgPartitionStrategy::TxSequenceNumber);
         partition_strategies.insert("transactions", PgPartitionStrategy::TxSequenceNumber);
         partition_strategies.insert("objects_version", PgPartitionStrategy::ObjectId);
         let manager = Self {
-            cp,
+            pool,
             partition_strategies,
         };
-        let tables = manager.get_table_partitions()?;
-        info!(
-            "Found {} tables with partitions : [{:?}]",
-            tables.len(),
-            tables
-        );
         Ok(manager)
     }
 
-    pub fn get_table_partitions(&self) -> Result<BTreeMap<String, (u64, u64)>, IndexerError> {
+    pub async fn get_table_partitions(&self) -> Result<BTreeMap<String, (u64, u64)>, IndexerError> {
         #[derive(QueryableByName, Debug, Clone)]
         struct PartitionedTable {
             #[diesel(sql_type = VarChar)]
@@ -137,19 +109,19 @@ impl<T: R2D2Connection> PgPartitionManager<T> {
             last_partition: i64,
         }
 
+        let mut connection = self.pool.get().await?;
+
         Ok(
-            read_only_blocking!(&self.cp, |conn| diesel::RunQueryDsl::load(
-                diesel::sql_query(GET_PARTITION_SQL),
-                conn
-            ))?
-            .into_iter()
-            .map(|table: PartitionedTable| {
-                (
-                    table.table_name,
-                    (table.first_partition as u64, table.last_partition as u64),
-                )
-            })
-            .collect(),
+            diesel_async::RunQueryDsl::load(diesel::sql_query(GET_PARTITION_SQL), &mut connection)
+                .await?
+                .into_iter()
+                .map(|table: PartitionedTable| {
+                    (
+                        table.table_name,
+                        (table.first_partition as u64, table.last_partition as u64),
+                    )
+                })
+                .collect(),
         )
     }
 
@@ -179,7 +151,7 @@ impl<T: R2D2Connection> PgPartitionManager<T> {
         }
     }
 
-    pub fn advance_epoch(
+    pub async fn advance_epoch(
         &self,
         table: String,
         last_partition: u64,
@@ -193,11 +165,9 @@ impl<T: R2D2Connection> PgPartitionManager<T> {
             return Ok(());
         }
         if last_partition == data.last_epoch {
-            #[cfg(feature = "postgres-feature")]
-            transactional_blocking_with_retry!(
-                &self.cp,
-                |conn| {
-                    RunQueryDsl::execute(
+            transaction_with_retry(&self.pool, Duration::from_secs(10), |conn| {
+                async {
+                    diesel_async::RunQueryDsl::execute(
                         diesel::sql_query("CALL advance_partition($1, $2, $3, $4, $5)")
                             .bind::<diesel::sql_types::Text, _>(table.clone())
                             .bind::<diesel::sql_types::BigInt, _>(data.last_epoch as i64)
@@ -206,18 +176,13 @@ impl<T: R2D2Connection> PgPartitionManager<T> {
                             .bind::<diesel::sql_types::BigInt, _>(partition_range.1 as i64),
                         conn,
                     )
-                },
-                Duration::from_secs(10)
-            )?;
-            #[cfg(feature = "mysql-feature")]
-            #[cfg(not(feature = "postgres-feature"))]
-            transactional_blocking_with_retry!(
-                &self.cp,
-                |conn| {
-                    RunQueryDsl::execute(diesel::sql_query(format!("ALTER TABLE {table_name} REORGANIZE PARTITION {table_name}_partition_{last_epoch} INTO (PARTITION {table_name}_partition_{last_epoch} VALUES LESS THAN ({next_epoch_start}), PARTITION {table_name}_partition_{next_epoch} VALUES LESS THAN MAXVALUE)", table_name = table.clone(), last_epoch = data.last_epoch as i64, next_epoch_start = partition_range.1 as i64, next_epoch = data.next_epoch as i64)), conn)
-                },
-                Duration::from_secs(10)
-            )?;
+                    .await?;
+
+                    Ok(())
+                }
+                .scope_boxed()
+            })
+            .await?;
 
             info!(
                 "Advanced epoch partition for table {} from {} to {}, prev partition upper bound {}",
@@ -239,36 +204,25 @@ impl<T: R2D2Connection> PgPartitionManager<T> {
         Ok(())
     }
 
-    pub fn drop_table_partition(&self, table: String, partition: u64) -> Result<(), IndexerError> {
-        #[cfg(feature = "postgres-feature")]
-        transactional_blocking_with_retry!(
-            &self.cp,
-            |conn| {
-                RunQueryDsl::execute(
+    pub async fn drop_table_partition(
+        &self,
+        table: String,
+        partition: u64,
+    ) -> Result<(), IndexerError> {
+        transaction_with_retry(&self.pool, Duration::from_secs(10), |conn| {
+            async {
+                diesel_async::RunQueryDsl::execute(
                     diesel::sql_query("CALL drop_partition($1, $2)")
                         .bind::<diesel::sql_types::Text, _>(table.clone())
                         .bind::<diesel::sql_types::BigInt, _>(partition as i64),
                     conn,
                 )
-            },
-            Duration::from_secs(10)
-        )?;
-        #[cfg(feature = "mysql-feature")]
-        #[cfg(not(feature = "postgres-feature"))]
-        transactional_blocking_with_retry!(
-            &self.cp,
-            |conn| {
-                RunQueryDsl::execute(
-                    diesel::sql_query(format!(
-                        "ALTER TABLE {} DROP PARTITION partition_{}",
-                        table.clone(),
-                        partition
-                    )),
-                    conn,
-                )
-            },
-            Duration::from_secs(10)
-        )?;
+                .await?;
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await?;
         Ok(())
     }
 }

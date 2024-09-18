@@ -30,7 +30,7 @@ use sui_types::base_types::ObjectRef;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use sui_types::bridge::BridgeChainId;
 use sui_types::crypto::KeypairTraits;
-use sui_types::crypto::SuiKeyPair;
+use sui_types::crypto::{get_key_pair_from_rng, NetworkKeyPair, SuiKeyPair};
 use sui_types::digests::{get_mainnet_chain_identifier, get_testnet_chain_identifier};
 use sui_types::event::EventID;
 use sui_types::object::Owner;
@@ -93,7 +93,7 @@ pub struct SuiConfig {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct BridgeNodeConfig {
     /// The port that the server listens on.
@@ -114,6 +114,23 @@ pub struct BridgeNodeConfig {
     pub sui: SuiConfig,
     /// Eth configuration
     pub eth: EthConfig,
+    /// Network key used for metrics pushing
+    #[serde(default = "default_ed25519_key_pair")]
+    pub metrics_key_pair: NetworkKeyPair,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<MetricsConfig>,
+}
+
+pub fn default_ed25519_key_pair() -> NetworkKeyPair {
+    get_key_pair_from_rng(&mut rand::rngs::OsRng).1
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct MetricsConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub push_interval_seconds: Option<u64>,
+    pub push_url: String,
 }
 
 impl Config for BridgeNodeConfig {}
@@ -141,7 +158,8 @@ impl BridgeNodeConfig {
 
         // we do this check here instead of `prepare_for_sui` below because
         // that is only called when `run_client` is true.
-        let sui_client = Arc::new(SuiClient::<SuiSdkClient>::new(&self.sui.sui_rpc_url).await?);
+        let sui_client =
+            Arc::new(SuiClient::<SuiSdkClient>::new(&self.sui.sui_rpc_url, metrics.clone()).await?);
         let bridge_committee = sui_client
             .get_bridge_committee()
             .await
