@@ -29,7 +29,7 @@ use super::{
     cursor::Page,
     digest::Digest,
     dry_run_result::DryRunResult,
-    epoch::Epoch,
+    epoch::{self, Epoch},
     event::{self, Event, EventFilter},
     move_type::MoveType,
     object::{self, Object, ObjectFilter},
@@ -289,11 +289,10 @@ impl Query {
     /// Fetch a structured representation of a concrete type, including its layout information.
     /// Fails if the type is malformed.
     async fn type_(&self, type_: String) -> Result<MoveType> {
-        Ok(MoveType::new(
-            TypeTag::from_str(&type_)
-                .map_err(|e| Error::Client(format!("Bad type: {e}")))
-                .extend()?,
-        ))
+        Ok(TypeTag::from_str(&type_)
+            .map_err(|e| Error::Client(format!("Bad type: {e}")))
+            .extend()?
+            .into())
     }
 
     /// Fetch epoch information by ID (defaults to the latest epoch).
@@ -324,9 +323,8 @@ impl Query {
         digest: Digest,
     ) -> Result<Option<TransactionBlock>> {
         let Watermark { checkpoint, .. } = *ctx.data()?;
-        TransactionBlock::query(ctx, digest, checkpoint)
-            .await
-            .extend()
+        let lookup = TransactionBlock::by_digest(digest, checkpoint);
+        TransactionBlock::query(ctx, lookup).await.extend()
     }
 
     /// The coin objects that exist in the network.
@@ -355,6 +353,23 @@ impl Query {
         )
         .await
         .extend()
+    }
+
+    // The epochs of the network
+    async fn epochs(
+        &self,
+        ctx: &Context<'_>,
+        first: Option<u64>,
+        after: Option<epoch::Cursor>,
+        last: Option<u64>,
+        before: Option<epoch::Cursor>,
+    ) -> Result<Connection<String, Epoch>> {
+        let Watermark { checkpoint, .. } = *ctx.data()?;
+
+        let page = Page::from_params(ctx.data_unchecked(), first, after, last, before)?;
+        Epoch::paginate(ctx.data_unchecked(), page, checkpoint)
+            .await
+            .extend()
     }
 
     /// The checkpoints that exist in the network.
@@ -562,7 +577,7 @@ impl Query {
         let Watermark { checkpoint, .. } = *ctx.data()?;
         let type_tag = NamedType::query(ctx, &name, checkpoint).await?;
 
-        Ok(MoveType::new(type_tag))
+        Ok(type_tag.into())
     }
 
     /// The coin metadata associated with the given coin type.

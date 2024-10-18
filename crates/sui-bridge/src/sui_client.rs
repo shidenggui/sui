@@ -31,7 +31,6 @@ use sui_types::transaction::Argument;
 use sui_types::transaction::CallArg;
 use sui_types::transaction::Command;
 use sui_types::transaction::ObjectArg;
-use sui_types::transaction::ProgrammableMoveCall;
 use sui_types::transaction::ProgrammableTransaction;
 use sui_types::transaction::Transaction;
 use sui_types::transaction::TransactionKind;
@@ -255,6 +254,7 @@ where
                 ""
             });
             authorities.push(BridgeAuthority {
+                sui_address,
                 pubkey,
                 voting_power,
                 base_url: base_url.into(),
@@ -283,6 +283,10 @@ where
             };
             return rgp;
         }
+    }
+
+    pub async fn get_latest_checkpoint_sequence_number(&self) -> BridgeResult<u64> {
+        Ok(self.inner.get_latest_checkpoint_sequence_number().await?)
     }
 
     pub async fn execute_transaction_block_with_effects(
@@ -596,13 +600,13 @@ where
             CallArg::Pure(bcs::to_bytes(&source_chain_id).unwrap()),
             CallArg::Pure(bcs::to_bytes(&seq_number).unwrap()),
         ],
-        commands: vec![Command::MoveCall(Box::new(ProgrammableMoveCall {
-            package: BRIDGE_PACKAGE_ID,
-            module: Identifier::new("bridge").unwrap(),
-            function: Identifier::new(function_name).unwrap(),
-            type_arguments: vec![],
-            arguments: vec![Argument::Input(0), Argument::Input(1), Argument::Input(2)],
-        }))],
+        commands: vec![Command::move_call(
+            BRIDGE_PACKAGE_ID,
+            Identifier::new("bridge").unwrap(),
+            Identifier::new(function_name).unwrap(),
+            vec![],
+            vec![Argument::Input(0), Argument::Input(1), Argument::Input(2)],
+        )],
     };
     let kind = TransactionKind::programmable(pt);
     let resp = sui_client
@@ -640,7 +644,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::crypto::BridgeAuthorityKeyPair;
-    use crate::BRIDGE_ENABLE_PROTOCOL_VERSION;
+    use crate::e2e_tests::test_utils::TestClusterWrapperBuilder;
     use crate::{
         events::{EmittedSuiToEthTokenBridgeV1, MoveTokenDepositedEvent},
         sui_mock_client::SuiMockClient,
@@ -656,7 +660,6 @@ mod tests {
     use std::str::FromStr;
     use sui_types::bridge::{BridgeChainId, TOKEN_ID_SUI, TOKEN_ID_USDC};
     use sui_types::crypto::get_key_pair;
-    use test_cluster::TestClusterBuilder;
 
     use super::*;
     use crate::events::{init_all_struct_tags, SuiToEthTokenBridgeV1};
@@ -786,22 +789,24 @@ mod tests {
             let (_, kp): (_, BridgeAuthorityKeyPair) = get_key_pair();
             bridge_keys.push(kp);
         }
-        let mut test_cluster: test_cluster::TestCluster = TestClusterBuilder::new()
-            .with_protocol_version((BRIDGE_ENABLE_PROTOCOL_VERSION).into())
-            .build_with_bridge(bridge_keys, true)
+        let mut test_cluster = TestClusterWrapperBuilder::new()
+            .with_bridge_authority_keys(bridge_keys)
+            .with_deploy_tokens(true)
+            .build()
             .await;
 
         let bridge_metrics = Arc::new(BridgeMetrics::new_for_testing());
-        let sui_client = SuiClient::new(&test_cluster.fullnode_handle.rpc_url, bridge_metrics)
-            .await
-            .unwrap();
-        let bridge_authority_keys = test_cluster.bridge_authority_keys.take().unwrap();
+        let sui_client =
+            SuiClient::new(&test_cluster.inner.fullnode_handle.rpc_url, bridge_metrics)
+                .await
+                .unwrap();
+        let bridge_authority_keys = test_cluster.authority_keys_clone();
 
         // Wait until committee is set up
         test_cluster
             .trigger_reconfiguration_if_not_yet_and_assert_bridge_committee_initialized()
             .await;
-        let context = &mut test_cluster.wallet;
+        let context = &mut test_cluster.inner.wallet;
         let sender = context.active_address().unwrap();
         let usdc_amount = 5000000;
         let bridge_object_arg = sui_client

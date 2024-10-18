@@ -19,7 +19,8 @@ pub struct Parameters {
     #[serde(skip)]
     pub db_path: PathBuf,
 
-    /// Time to wait for parent round leader before sealing a block.
+    /// Time to wait for parent round leader before sealing a block, from when parent round
+    /// has a quorum.
     #[serde(default = "Parameters::default_leader_timeout")]
     pub leader_timeout: Duration,
 
@@ -102,6 +103,9 @@ impl Parameters {
             // leading to long reconfiguration delays. This is because simtest is single threaded,
             // and spending too much time in consensus can lead to starvation elsewhere.
             Duration::from_millis(400)
+        } else if cfg!(test) {
+            // Avoid excessive CPU, data and logs in tests.
+            Duration::from_millis(250)
         } else {
             Duration::from_millis(50)
         }
@@ -153,7 +157,7 @@ impl Parameters {
     }
 
     pub(crate) fn default_commit_sync_parallel_fetches() -> usize {
-        20
+        8
     }
 
     pub(crate) fn default_commit_sync_batch_size() -> u32 {
@@ -168,7 +172,7 @@ impl Parameters {
     pub(crate) fn default_commit_sync_batches_ahead() -> usize {
         // This is set to be a multiple of default commit_sync_parallel_fetches to allow fetching ahead,
         // while keeping the total number of inflight fetches and unprocessed fetched commits limited.
-        80
+        32
     }
 }
 

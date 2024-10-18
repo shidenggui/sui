@@ -162,9 +162,12 @@ where
                     Duration::from_secs(10),
                 )
                 .await;
-                bridge_auth_agg.store(Arc::new(BridgeAuthorityAggregator::new(Arc::new(
-                    new_committee,
-                ))));
+                let committee_names = bridge_auth_agg.load().committee_keys_to_names.clone();
+                bridge_auth_agg.store(Arc::new(BridgeAuthorityAggregator::new(
+                    Arc::new(new_committee),
+                    bridge_metrics.clone(),
+                    committee_names,
+                )));
                 info!("Committee updated with CommitteeMemberUrlUpdateEvent");
             }
 
@@ -180,9 +183,12 @@ where
                     Duration::from_secs(10),
                 )
                 .await;
-                bridge_auth_agg.store(Arc::new(BridgeAuthorityAggregator::new(Arc::new(
-                    new_committee,
-                ))));
+                let committee_names = bridge_auth_agg.load().committee_keys_to_names.clone();
+                bridge_auth_agg.store(Arc::new(BridgeAuthorityAggregator::new(
+                    Arc::new(new_committee),
+                    bridge_metrics.clone(),
+                    committee_names,
+                )));
                 info!("Committee updated with BlocklistValidatorEvent");
             }
 
@@ -241,6 +247,16 @@ where
                 EthBridgeCommitteeEvents::UpgradedFilter(_) => {
                     bump_eth_counter!("committee_contract_upgraded");
                 }
+                EthBridgeCommitteeEvents::BlocklistUpdatedV2Filter(e) => {
+                    bump_eth_counter!(if e.is_blocklisted {
+                        "validator_blocklisted"
+                    } else {
+                        "validator_unblocklisted"
+                    });
+                }
+                EthBridgeCommitteeEvents::ContractUpgradedFilter(_) => {
+                    bump_eth_counter!("committee_contract_upgraded");
+                }
             },
             EthBridgeEvent::EthBridgeLimiterEvents(event) => match event {
                 EthBridgeLimiterEvents::InitializedFilter(_) => {
@@ -258,6 +274,12 @@ where
                 // This event is deprecated but we keep it for ABI compatibility
                 // TODO: We can safely update abi and remove it once the testnet bridge contract is upgraded
                 EthBridgeLimiterEvents::HourlyTransferAmountUpdatedFilter(_) => (),
+                EthBridgeLimiterEvents::ContractUpgradedFilter(_) => {
+                    bump_eth_counter!("limiter_contract_upgraded");
+                }
+                EthBridgeLimiterEvents::LimitUpdatedV2Filter(_) => {
+                    bump_eth_counter!("limit_updated");
+                }
             },
             EthBridgeEvent::EthBridgeConfigEvents(event) => match event {
                 EthBridgeConfigEvents::InitializedFilter(_) => {
@@ -271,6 +293,15 @@ where
                 }
                 EthBridgeConfigEvents::TokenPriceUpdatedFilter(_) => {
                     bump_eth_counter!("update_token_price");
+                }
+                EthBridgeConfigEvents::ContractUpgradedFilter(_) => {
+                    bump_eth_counter!("config_contract_upgraded");
+                }
+                EthBridgeConfigEvents::TokenPriceUpdatedV2Filter(_) => {
+                    bump_eth_counter!("update_token_price");
+                }
+                EthBridgeConfigEvents::TokensAddedV2Filter(_) => {
+                    bump_eth_counter!("new_token_added");
                 }
             },
             EthBridgeEvent::EthCommitteeUpgradeableContractEvents(event) => match event {
@@ -291,6 +322,16 @@ where
                 }
                 EthSuiBridgeEvents::InitializedFilter(_) => {
                     bump_eth_counter!("bridge_contract_initialized")
+                }
+                EthSuiBridgeEvents::ContractUpgradedFilter(_) => {
+                    bump_eth_counter!("bridge_contract_upgraded")
+                }
+                EthSuiBridgeEvents::EmergencyOperationFilter(e) => {
+                    if e.paused {
+                        bump_eth_counter!("bridge_paused")
+                    } else {
+                        bump_eth_counter!("bridge_unpaused")
+                    }
                 }
             },
         }
@@ -891,9 +932,9 @@ mod tests {
             bridge_metrics,
         ) = setup();
         let old_committee = BridgeCommittee::new(authorities.clone()).unwrap();
-        let agg = Arc::new(ArcSwap::new(Arc::new(BridgeAuthorityAggregator::new(
-            Arc::new(old_committee),
-        ))));
+        let agg = Arc::new(ArcSwap::new(Arc::new(
+            BridgeAuthorityAggregator::new_for_testing(Arc::new(old_committee)),
+        )));
         let sui_token_type_tags = Arc::new(ArcSwap::from(Arc::new(HashMap::new())));
         let _handle = tokio::task::spawn(
             BridgeMonitor::new(
@@ -950,9 +991,9 @@ mod tests {
             bridge_metrics,
         ) = setup();
         let old_committee = BridgeCommittee::new(authorities.clone()).unwrap();
-        let agg = Arc::new(ArcSwap::new(Arc::new(BridgeAuthorityAggregator::new(
-            Arc::new(old_committee),
-        ))));
+        let agg = Arc::new(ArcSwap::new(Arc::new(
+            BridgeAuthorityAggregator::new_for_testing(Arc::new(old_committee)),
+        )));
         let sui_token_type_tags = Arc::new(ArcSwap::from(Arc::new(HashMap::new())));
         let _handle = tokio::task::spawn(
             BridgeMonitor::new(
@@ -1010,9 +1051,9 @@ mod tests {
             frozen: !*bridge_pause_tx.borrow(), // toggle the bridge pause status
         };
         let committee = BridgeCommittee::new(authorities.clone()).unwrap();
-        let agg = Arc::new(ArcSwap::new(Arc::new(BridgeAuthorityAggregator::new(
-            Arc::new(committee),
-        ))));
+        let agg = Arc::new(ArcSwap::new(Arc::new(
+            BridgeAuthorityAggregator::new_for_testing(Arc::new(committee)),
+        )));
         let sui_token_type_tags = Arc::new(ArcSwap::from(Arc::new(HashMap::new())));
         let _handle = tokio::task::spawn(
             BridgeMonitor::new(
@@ -1060,9 +1101,9 @@ mod tests {
             notional_value: 100000000,
         };
         let committee = BridgeCommittee::new(authorities.clone()).unwrap();
-        let agg = Arc::new(ArcSwap::new(Arc::new(BridgeAuthorityAggregator::new(
-            Arc::new(committee),
-        ))));
+        let agg = Arc::new(ArcSwap::new(Arc::new(
+            BridgeAuthorityAggregator::new_for_testing(Arc::new(committee)),
+        )));
         let sui_token_type_tags = Arc::new(ArcSwap::from(Arc::new(HashMap::new())));
         let sui_token_type_tags_clone = sui_token_type_tags.clone();
         let _handle = tokio::task::spawn(

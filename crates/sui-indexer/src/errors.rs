@@ -28,6 +28,12 @@ impl std::fmt::Display for DataDownloadError {
 
 #[derive(Debug, Error)]
 pub enum IndexerError {
+    #[error("Indexer failed to read from archives store with error: `{0}`")]
+    ArchiveReaderError(String),
+
+    #[error("Stream closed unexpectedly with error: `{0}`")]
+    ChannelClosed(String),
+
     #[error("Indexer failed to convert timestamp to NaiveDateTime with error: `{0}`")]
     DateTimeParsingError(String),
 
