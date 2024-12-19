@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use futures::{FutureExt, StreamExt};
 
 use serde::{Deserialize, Serialize};
-use sui_rest_api::CheckpointData;
+use sui_rpc_api::CheckpointData;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -30,6 +30,7 @@ pub mod pruner;
 pub mod tx_processor;
 
 pub(crate) const CHECKPOINT_COMMIT_BATCH_SIZE: usize = 100;
+pub(crate) const UNPROCESSED_CHECKPOINT_SIZE_LIMIT: usize = 1000;
 
 #[derive(Debug)]
 pub struct CheckpointDataToCommit {
@@ -91,6 +92,8 @@ impl<T> CommonHandler<T> {
         &self,
         cp_receiver: mysten_metrics::metered_channel::Receiver<(CommitterWatermark, T)>,
         cancel: CancellationToken,
+        start_checkpoint: u64,
+        end_checkpoint_opt: Option<u64>,
     ) -> IndexerResult<()> {
         let checkpoint_commit_batch_size = std::env::var("CHECKPOINT_COMMIT_BATCH_SIZE")
             .unwrap_or(CHECKPOINT_COMMIT_BATCH_SIZE.to_string())
@@ -103,12 +106,7 @@ impl<T> CommonHandler<T> {
         // just the checkpoint sequence number, and the tuple is (CommitterWatermark, T).
         let mut unprocessed: BTreeMap<u64, (CommitterWatermark, _)> = BTreeMap::new();
         let mut tuple_batch = vec![];
-        let mut next_cp_to_process = self
-            .handler
-            .get_watermark_hi()
-            .await?
-            .map(|n| n.saturating_add(1))
-            .unwrap_or_default();
+        let mut next_cp_to_process = start_checkpoint;
 
         loop {
             if cancel.is_cancelled() {
@@ -116,22 +114,35 @@ impl<T> CommonHandler<T> {
             }
 
             // Try to fetch new data tuple from the stream
-            match stream.next().now_or_never() {
-                Some(Some(tuple_chunk)) => {
-                    if cancel.is_cancelled() {
-                        return Ok(());
+            if unprocessed.len() >= UNPROCESSED_CHECKPOINT_SIZE_LIMIT {
+                tracing::info!(
+                    "Unprocessed checkpoint size reached limit {}, skip reading from stream...",
+                    UNPROCESSED_CHECKPOINT_SIZE_LIMIT
+                );
+            } else {
+                // Try to fetch new data tuple from the stream
+                match stream.next().now_or_never() {
+                    Some(Some(tuple_chunk)) => {
+                        if cancel.is_cancelled() {
+                            return Ok(());
+                        }
+                        for tuple in tuple_chunk {
+                            unprocessed.insert(tuple.0.checkpoint_hi_inclusive, tuple);
+                        }
                     }
-                    for tuple in tuple_chunk {
-                        unprocessed.insert(tuple.0.cp, tuple);
-                    }
+                    Some(None) => break, // Stream has ended
+                    None => {}           // No new data tuple available right now
                 }
-                Some(None) => break, // Stream has ended
-                None => {}           // No new data tuple available right now
             }
 
             // Process unprocessed checkpoints, even no new checkpoints from stream
             let checkpoint_lag_limiter = self.handler.get_max_committable_checkpoint().await?;
-            while next_cp_to_process <= checkpoint_lag_limiter {
+            let max_commitable_cp = std::cmp::min(
+                checkpoint_lag_limiter,
+                end_checkpoint_opt.unwrap_or(u64::MAX),
+            );
+            // Stop pushing to tuple_batch if we've reached the end checkpoint.
+            while next_cp_to_process <= max_commitable_cp {
                 if let Some(data_tuple) = unprocessed.remove(&next_cp_to_process) {
                     tuple_batch.push(data_tuple);
                     next_cp_to_process += 1;
@@ -152,6 +163,16 @@ impl<T> CommonHandler<T> {
                 })?;
                 self.handler.set_watermark_hi(committer_watermark).await?;
                 tuple_batch = vec![];
+            }
+
+            if let Some(end_checkpoint) = end_checkpoint_opt {
+                if next_cp_to_process > end_checkpoint {
+                    tracing::info!(
+                        "Reached end checkpoint, stopping handler {}...",
+                        self.handler.name()
+                    );
+                    return Ok(());
+                }
             }
         }
         Err(IndexerError::ChannelClosed(format!(
@@ -191,17 +212,17 @@ pub trait Handler<T>: Send + Sync {
 /// will be used for a particular table.
 #[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 pub struct CommitterWatermark {
-    pub epoch: u64,
-    pub cp: u64,
-    pub tx: u64,
+    pub epoch_hi_inclusive: u64,
+    pub checkpoint_hi_inclusive: u64,
+    pub tx_hi: u64,
 }
 
 impl From<&IndexedCheckpoint> for CommitterWatermark {
     fn from(checkpoint: &IndexedCheckpoint) -> Self {
         Self {
-            epoch: checkpoint.epoch,
-            cp: checkpoint.sequence_number,
-            tx: checkpoint.network_total_transactions.saturating_sub(1),
+            epoch_hi_inclusive: checkpoint.epoch,
+            checkpoint_hi_inclusive: checkpoint.sequence_number,
+            tx_hi: checkpoint.network_total_transactions,
         }
     }
 }
@@ -209,12 +230,9 @@ impl From<&IndexedCheckpoint> for CommitterWatermark {
 impl From<&CheckpointData> for CommitterWatermark {
     fn from(checkpoint: &CheckpointData) -> Self {
         Self {
-            epoch: checkpoint.checkpoint_summary.epoch,
-            cp: checkpoint.checkpoint_summary.sequence_number,
-            tx: checkpoint
-                .checkpoint_summary
-                .network_total_transactions
-                .saturating_sub(1),
+            epoch_hi_inclusive: checkpoint.checkpoint_summary.epoch,
+            checkpoint_hi_inclusive: checkpoint.checkpoint_summary.sequence_number,
+            tx_hi: checkpoint.checkpoint_summary.network_total_transactions,
         }
     }
 }
@@ -270,8 +288,6 @@ pub enum CommitterTables {
     TxDigests,
     TxInputObjects,
     TxKinds,
-    TxRecipients,
-    TxSenders,
 
     Checkpoints,
     PrunerCpWatermark,

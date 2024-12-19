@@ -4,7 +4,7 @@
 import { bcs } from '@mysten/sui/bcs';
 import type { SuiClient } from '@mysten/sui/client';
 import { SuiGraphQLClient } from '@mysten/sui/graphql';
-import { graphql } from '@mysten/sui/graphql/schemas/2024.4';
+import { graphql } from '@mysten/sui/graphql/schemas/latest';
 import { fromBase64, normalizeSuiAddress } from '@mysten/sui/utils';
 
 import { ZkSendLink } from './claim.js';
@@ -16,7 +16,7 @@ const ListCreatedLinksQuery = graphql(`
 		transactionBlocks(
 			last: 10
 			before: $cursor
-			filter: { sentAddress: $address, function: $function, kind: PROGRAMMABLE_TX }
+			filter: { sentAddress: $address, function: $function }
 		) {
 			pageInfo {
 				startCursor
@@ -85,10 +85,9 @@ export async function listCreatedLinks({
 					return null;
 				}
 
-				const kind = bcs.SenderSignedData.parse(fromBase64(node.bcs))?.[0]?.intentMessage.value.V1
-					.kind;
+				const kind = bcs.TransactionData.parse(fromBase64(node.bcs)).V1.kind;
 
-				if (!kind.ProgrammableTransaction) {
+				if (!kind?.ProgrammableTransaction) {
 					return null;
 				}
 

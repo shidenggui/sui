@@ -72,11 +72,29 @@ pub struct Program {
     pub lib_definitions: Vec<PackageDefinition>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalTargetKind {
+    Library,
+    SkippedSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Specifies a source target or dependency
+pub enum TargetKind {
+    /// A source module. If is_root_package is false, some warnings might be suppressed.
+    /// Bytecode/CompiledModules will be generated for any Source target
+    Source { is_root_package: bool },
+    /// A dependency only used for linking.
+    /// No bytecode or CompiledModules are generated
+    External(ExternalTargetKind),
+}
+
 #[derive(Debug, Clone)]
 pub struct PackageDefinition {
     pub package: Option<Symbol>,
     pub named_address_map: NamedAddressMapIndex,
     pub def: Definition,
+    pub target_kind: TargetKind,
 }
 
 #[derive(Debug, Clone)]
@@ -609,7 +627,7 @@ pub enum Exp_ {
     Assign(Box<Exp>, Box<Exp>),
 
     // abort e
-    Abort(Box<Exp>),
+    Abort(Option<Box<Exp>>),
     // return e
     Return(Option<BlockLabel>, Option<Box<Exp>>),
     // break
@@ -628,11 +646,12 @@ pub enum Exp_ {
     // &mut e
     Borrow(bool, Box<Exp>),
 
-    // e.f
-    Dot(Box<Exp>, Name),
+    // e.f (along with the location of the dot)
+    Dot(Box<Exp>, /* dot location */ Loc, Name),
     // e.f(earg,*)
     DotCall(
         Box<Exp>,
+        Loc, // location of the dot
         Name,
         /* is_macro */ Option<Loc>,
         Option<Vec<Type>>,
@@ -1346,6 +1365,7 @@ fn ast_debug_package_definition(
         package,
         named_address_map,
         def,
+        target_kind: _,
     } = pkg;
     match package {
         Some(n) => w.writeln(format!("package: {}", n)),
@@ -1353,6 +1373,20 @@ fn ast_debug_package_definition(
     }
     named_address_maps.get(*named_address_map).ast_debug(w);
     def.ast_debug(w);
+}
+
+impl AstDebug for TargetKind {
+    fn ast_debug(&self, w: &mut AstWriter) {
+        w.writeln(match self {
+            TargetKind::Source {
+                is_root_package: true,
+            } => "root module".to_string(),
+            TargetKind::Source {
+                is_root_package: false,
+            } => "dependency module".to_string(),
+            TargetKind::External(k) => format!("external module {:?}", k),
+        });
+    }
 }
 
 impl AstDebug for NamedAddressMap {
@@ -2079,8 +2113,11 @@ impl AstDebug for Exp_ {
                 rhs.ast_debug(w);
             }
             E::Abort(e) => {
-                w.write("abort ");
-                e.ast_debug(w);
+                w.write("abort");
+                if let Some(e) = e {
+                    w.write(" ");
+                    e.ast_debug(w);
+                }
             }
             E::Return(name, e) => {
                 w.write("return");
@@ -2125,11 +2162,11 @@ impl AstDebug for Exp_ {
                 }
                 e.ast_debug(w);
             }
-            E::Dot(e, n) => {
+            E::Dot(e, _, n) => {
                 e.ast_debug(w);
                 w.write(format!(".{}", n));
             }
-            E::DotCall(e, n, is_macro, tyargs, sp!(_, rhs)) => {
+            E::DotCall(e, _, n, is_macro, tyargs, sp!(_, rhs)) => {
                 e.ast_debug(w);
                 w.write(format!(".{}", n));
                 if is_macro.is_some() {

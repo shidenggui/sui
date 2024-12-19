@@ -10,7 +10,7 @@ use crate::{
         utils::{completion_item, PRIMITIVE_TYPE_COMPLETIONS},
     },
     context::Context,
-    symbols::{self, CursorContext, PrecompiledPkgDeps, SymbolicatorRunner, Symbols},
+    symbols::{self, CursorContext, PrecomputedPkgInfo, SymbolicatorRunner, Symbols},
 };
 use lsp_server::Request;
 use lsp_types::{CompletionItem, CompletionItemKind, CompletionParams, Position};
@@ -78,7 +78,7 @@ pub fn on_completion_request(
     context: &Context,
     request: &Request,
     ide_files_root: VfsPath,
-    pkg_dependencies: Arc<Mutex<BTreeMap<PathBuf, PrecompiledPkgDeps>>>,
+    pkg_dependencies: Arc<Mutex<BTreeMap<PathBuf, PrecomputedPkgInfo>>>,
 ) {
     eprintln!("handling completion request");
     let parameters = serde_json::from_value::<CompletionParams>(request.params.clone())
@@ -119,7 +119,7 @@ pub fn on_completion_request(
 fn completions(
     context: &Context,
     ide_files_root: VfsPath,
-    pkg_dependencies: Arc<Mutex<BTreeMap<PathBuf, PrecompiledPkgDeps>>>,
+    pkg_dependencies: Arc<Mutex<BTreeMap<PathBuf, PrecomputedPkgInfo>>>,
     path: &Path,
     pos: Position,
 ) -> Option<Vec<CompletionItem>> {
@@ -143,7 +143,7 @@ fn completions(
 pub fn compute_completions(
     current_symbols: &Symbols,
     ide_files_root: VfsPath,
-    pkg_dependencies: Arc<Mutex<BTreeMap<PathBuf, PrecompiledPkgDeps>>>,
+    pkg_dependencies: Arc<Mutex<BTreeMap<PathBuf, PrecomputedPkgInfo>>>,
     path: &Path,
     pos: Position,
 ) -> Vec<CompletionItem> {
@@ -156,7 +156,7 @@ pub fn compute_completions(
 /// view of the code (returns `None` if the symbols could not be re-computed).
 fn compute_completions_new_symbols(
     ide_files_root: VfsPath,
-    pkg_dependencies: Arc<Mutex<BTreeMap<PathBuf, PrecompiledPkgDeps>>>,
+    pkg_dependencies: Arc<Mutex<BTreeMap<PathBuf, PrecomputedPkgInfo>>>,
     path: &Path,
     cursor_position: Position,
 ) -> Option<Vec<CompletionItem>> {
@@ -170,6 +170,7 @@ fn compute_completions_new_symbols(
         pkg_dependencies,
         ide_files_root,
         &pkg_path,
+        Some(vec![path.to_path_buf()]),
         LintLevel::None,
         cursor_info,
     )
@@ -269,12 +270,13 @@ fn cursor_completion_items(
             completions.extend(custom_completions);
             completion_finalized |= custom_finalized;
             if !completion_finalized {
-                let (use_decl_completions, use_decl_finalized) =
-                    use_decl_completions(symbols, cursor);
+                let (use_decl_completions, _) = use_decl_completions(symbols, cursor);
                 completions.extend(use_decl_completions);
-                completion_finalized |= use_decl_finalized;
             }
-            (completions, completion_finalized)
+            // do not offer default completions after `{` as this may get annoying
+            // when simply starting a body of a function and hitting enter triggers
+            // auto-completion of an essentially random identifier
+            (completions, true)
         }
         // TODO: should we handle auto-completion on `:`? If we model our support after
         // rust-analyzer then it does not do this - it starts auto-completing types after the first

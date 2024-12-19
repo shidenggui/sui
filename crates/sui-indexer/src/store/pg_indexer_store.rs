@@ -298,13 +298,10 @@ impl PgIndexerStore {
 
         let mut connection = self.pool.get().await?;
 
-        watermarks::table
-            .select(watermarks::checkpoint_hi_inclusive)
-            .filter(watermarks::entity.eq("objects_snapshot"))
-            .first::<i64>(&mut connection)
+        objects_snapshot::table
+            .select(max(objects_snapshot::checkpoint_sequence_number))
+            .first::<Option<i64>>(&mut connection)
             .await
-            // Handle case where the watermark is not set yet
-            .optional()
             .map_err(Into::into)
             .map(|v| v.map(|v| v as u64))
             .context(
@@ -1525,13 +1522,13 @@ impl PgIndexerStore {
             async {
                 diesel::insert_into(watermarks::table)
                     .values(upper_bound_updates)
-                    .on_conflict(watermarks::entity)
+                    .on_conflict(watermarks::pipeline)
                     .do_update()
                     .set((
                         watermarks::epoch_hi_inclusive.eq(excluded(watermarks::epoch_hi_inclusive)),
                         watermarks::checkpoint_hi_inclusive
                             .eq(excluded(watermarks::checkpoint_hi_inclusive)),
-                        watermarks::tx_hi_inclusive.eq(excluded(watermarks::tx_hi_inclusive)),
+                        watermarks::tx_hi.eq(excluded(watermarks::tx_hi)),
                     ))
                     .execute(conn)
                     .await
@@ -1622,7 +1619,7 @@ impl PgIndexerStore {
 
                 diesel::insert_into(watermarks::table)
                     .values(lower_bound_updates)
-                    .on_conflict(watermarks::entity)
+                    .on_conflict(watermarks::pipeline)
                     .do_update()
                     .set((
                         watermarks::reader_lo.eq(excluded(watermarks::reader_lo)),
@@ -2150,17 +2147,16 @@ impl IndexerStore for PgIndexerStore {
         min_cp = std::cmp::max(min_cp, min_prunable_cp);
         for cp in min_cp..=max_cp {
             // NOTE: the order of pruning tables is crucial:
-            // 1. prune checkpoints table, checkpoints table is the source table of available range,
-            // we prune it first to make sure that we always have full data for checkpoints within the available range;
-            // 2. then prune tx_* tables;
+            // 1. prune tx_* tables;
+            // 2. prune event_* tables;
             // 3. then prune pruner_cp_watermark table, which is the checkpoint pruning watermark table and also tx seq source
             // of a checkpoint to prune tx_* tables;
-            // 4. lastly we prune epochs table when all checkpoints of the epoch have been pruned.
+            // 4. lastly prune checkpoints table, because wait_for_graphql_checkpoint_pruned
+            // uses this table as the pruning watermark table.
             info!(
                 "Pruning checkpoint {} of epoch {} (min_prunable_cp: {})",
                 cp, epoch, min_prunable_cp
             );
-            self.prune_checkpoints_table(cp).await?;
 
             let (min_tx, max_tx) = self.get_transaction_range_for_checkpoint(cp).await?;
             self.prune_tx_indices_table(min_tx, max_tx).await?;
@@ -2176,6 +2172,10 @@ impl IndexerStore for PgIndexerStore {
             self.metrics.last_pruned_transaction.set(max_tx as i64);
 
             self.prune_cp_tx_table(cp).await?;
+            // NOTE: prune checkpoints table last b/c wait_for_graphql_checkpoint_pruned
+            // uses this table as the watermark table.
+            self.prune_checkpoints_table(cp).await?;
+
             info!("Pruned checkpoint {} of epoch {}", cp, epoch);
             self.metrics.last_pruned_checkpoint.set(cp as i64);
         }
