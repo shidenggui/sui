@@ -57,8 +57,8 @@ impl Committee {
         }
     }
 
-    /// -----------------------------------------------------------------------
-    /// Accessors to Committee fields.
+    // -----------------------------------------------------------------------
+    // Accessors to Committee fields.
 
     pub fn epoch(&self) -> Epoch {
         self.epoch
@@ -91,8 +91,8 @@ impl Committee {
             .map(|(i, a)| (AuthorityIndex(i as u32), a))
     }
 
-    /// -----------------------------------------------------------------------
-    /// Helpers for Committee properties.
+    // -----------------------------------------------------------------------
+    // Helpers for Committee properties.
 
     /// Returns true if the provided stake has reached quorum (2f+1).
     pub fn reached_quorum(&self, stake: Stake) -> bool {
@@ -104,7 +104,7 @@ impl Committee {
         stake >= self.validity_threshold()
     }
 
-    /// Coverts an index to an AuthorityIndex, if valid.
+    /// Converts an index to an AuthorityIndex, if valid.
     /// Returns None if index is out of bound.
     pub fn to_authority_index(&self, index: usize) -> Option<AuthorityIndex> {
         if index < self.authorities.len() {
@@ -175,15 +175,9 @@ impl AuthorityIndex {
     }
 }
 
-// TODO: re-evaluate formats for production debugging.
 impl Display for AuthorityIndex {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if self.value() < 26 {
-            let c = (b'A' + self.value() as u8) as char;
-            f.write_str(c.to_string().as_str())
-        } else {
-            write!(f, "[{:02}]", self.value())
-        }
+        write!(f, "[{}]", self.value())
     }
 }
 

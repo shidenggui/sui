@@ -1,14 +1,15 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use super::types::proto_to_timestamp_ms;
 use super::types::timestamp_ms_to_proto;
 use super::TryFromProtoError;
+use prost_types::FieldMask;
 use tap::Pipe;
 
-#[rustfmt::skip]
-#[path = "generated/sui.node.v2.rs"]
-mod generated;
-pub use generated::*;
+pub mod v2 {
+    include!("generated/sui.node.v2.rs");
 
-mod file_descriptor_set {
     /// Byte encoded FILE_DESCRIPTOR_SET.
     pub const FILE_DESCRIPTOR_SET: &[u8] = include_bytes!("generated/sui.node.v2.fds.bin");
 
@@ -23,14 +24,33 @@ mod file_descriptor_set {
         }
     }
 }
-pub use file_descriptor_set::FILE_DESCRIPTOR_SET;
+
+pub mod v2alpha {
+    include!("generated/sui.node.v2alpha.rs");
+
+    /// Byte encoded FILE_DESCRIPTOR_SET.
+    pub const FILE_DESCRIPTOR_SET: &[u8] = include_bytes!("generated/sui.node.v2alpha.fds.bin");
+
+    #[cfg(test)]
+    mod tests {
+        use super::FILE_DESCRIPTOR_SET;
+        use prost::Message as _;
+
+        #[test]
+        fn file_descriptor_set_is_valid() {
+            prost_types::FileDescriptorSet::decode(FILE_DESCRIPTOR_SET).unwrap();
+        }
+    }
+}
+
+use v2::*;
 
 //
 // BalanceChange
 //
 
-impl From<sui_sdk_types::types::BalanceChange> for BalanceChange {
-    fn from(value: sui_sdk_types::types::BalanceChange) -> Self {
+impl From<sui_sdk_types::BalanceChange> for BalanceChange {
+    fn from(value: sui_sdk_types::BalanceChange) -> Self {
         Self {
             address: Some(value.address.into()),
             coin_type: Some(value.coin_type.into()),
@@ -39,7 +59,7 @@ impl From<sui_sdk_types::types::BalanceChange> for BalanceChange {
     }
 }
 
-impl TryFrom<&BalanceChange> for sui_sdk_types::types::BalanceChange {
+impl TryFrom<&BalanceChange> for sui_sdk_types::BalanceChange {
     type Error = TryFromProtoError;
 
     fn try_from(value: &BalanceChange) -> Result<Self, Self::Error> {
@@ -149,308 +169,114 @@ impl TryFrom<&GetNodeInfoResponse> for crate::types::NodeInfo {
 }
 
 //
-// GetObjectOptions
+// GetObjectRequest
 //
 
-impl From<crate::types::GetObjectOptions> for GetObjectOptions {
-    fn from(
-        crate::types::GetObjectOptions { object, object_bcs }: crate::types::GetObjectOptions,
-    ) -> Self {
-        Self { object, object_bcs }
-    }
-}
-
-impl From<GetObjectOptions> for crate::types::GetObjectOptions {
-    fn from(GetObjectOptions { object, object_bcs }: GetObjectOptions) -> Self {
-        Self { object, object_bcs }
-    }
-}
-
-//
-// ObjectResponse
-//
-
-impl From<crate::types::ObjectResponse> for GetObjectResponse {
-    fn from(
-        crate::types::ObjectResponse {
-            object_id,
-            version,
-            digest,
-            object,
-            object_bcs,
-        }: crate::types::ObjectResponse,
-    ) -> Self {
+impl GetObjectRequest {
+    pub fn new<T: Into<super::types::ObjectId>>(object_id: T) -> Self {
         Self {
             object_id: Some(object_id.into()),
-            version: Some(version),
+            version: None,
+            read_mask: None,
+        }
+    }
+
+    pub fn with_version(mut self, version: u64) -> Self {
+        self.version = Some(version);
+        self
+    }
+
+    pub fn with_read_mask(mut self, read_mask: FieldMask) -> Self {
+        self.read_mask = Some(read_mask);
+        self
+    }
+}
+
+//
+// GetCheckpointRequest
+//
+
+impl GetCheckpointRequest {
+    pub fn latest() -> Self {
+        Self {
+            sequence_number: None,
+            digest: None,
+            read_mask: None,
+        }
+    }
+
+    pub fn by_digest<T: Into<super::types::Digest>>(digest: T) -> Self {
+        Self {
+            sequence_number: None,
             digest: Some(digest.into()),
-            object: object.map(Into::into),
-            object_bcs: object_bcs.map(Into::into),
+            read_mask: None,
         }
     }
-}
 
-impl TryFrom<&GetObjectResponse> for crate::types::ObjectResponse {
-    type Error = TryFromProtoError;
-
-    fn try_from(
-        GetObjectResponse {
-            object_id,
-            version,
-            digest,
-            object,
-            object_bcs,
-        }: &GetObjectResponse,
-    ) -> Result<Self, Self::Error> {
-        let object_id = object_id
-            .as_ref()
-            .ok_or_else(|| TryFromProtoError::missing("object_id"))?
-            .pipe(TryInto::try_into)?;
-        let version = version.ok_or_else(|| TryFromProtoError::missing("version"))?;
-        let digest = digest
-            .as_ref()
-            .ok_or_else(|| TryFromProtoError::missing("digest"))?
-            .pipe(TryInto::try_into)?;
-
-        let object = object.as_ref().map(TryInto::try_into).transpose()?;
-        let object_bcs = object_bcs.as_ref().map(Into::into);
-
+    pub fn by_sequence_number(sequence_number: u64) -> Self {
         Self {
-            object_id,
-            version,
-            digest,
-            object,
-            object_bcs,
+            sequence_number: Some(sequence_number),
+            digest: None,
+            read_mask: None,
         }
-        .pipe(Ok)
+    }
+
+    pub fn with_read_mask(mut self, read_mask: FieldMask) -> Self {
+        self.read_mask = Some(read_mask);
+        self
     }
 }
 
 //
-// GetCheckpointOptions
+// GetTransactionRequest
 //
 
-impl From<crate::types::GetCheckpointOptions> for GetCheckpointOptions {
-    fn from(
-        crate::types::GetCheckpointOptions {
-            summary,
-            summary_bcs,
-            signature,
-            contents,
-            contents_bcs,
-        }: crate::types::GetCheckpointOptions,
-    ) -> Self {
+impl GetTransactionRequest {
+    pub fn new<T: Into<super::types::Digest>>(digest: T) -> Self {
         Self {
-            summary,
-            summary_bcs,
-            signature,
-            contents,
-            contents_bcs,
+            digest: Some(digest.into()),
+            read_mask: None,
         }
     }
-}
 
-impl From<GetCheckpointOptions> for crate::types::GetCheckpointOptions {
-    fn from(
-        GetCheckpointOptions {
-            summary,
-            summary_bcs,
-            signature,
-            contents,
-            contents_bcs,
-        }: GetCheckpointOptions,
-    ) -> Self {
-        Self {
-            summary,
-            summary_bcs,
-            signature,
-            contents,
-            contents_bcs,
-        }
+    pub fn with_read_mask(mut self, read_mask: FieldMask) -> Self {
+        self.read_mask = Some(read_mask);
+        self
     }
 }
 
 //
-// GetTransactionOptions
+// GetFullCheckpointRequest
 //
 
-impl From<crate::types::GetTransactionOptions> for GetTransactionOptions {
-    fn from(
-        crate::types::GetTransactionOptions {
-            transaction,
-            transaction_bcs,
-            signatures,
-            signatures_bytes,
-            effects,
-            effects_bcs,
-            events,
-            events_bcs,
-        }: crate::types::GetTransactionOptions,
-    ) -> Self {
+impl GetFullCheckpointRequest {
+    pub fn latest() -> Self {
         Self {
-            transaction,
-            transaction_bcs,
-            signatures,
-            signatures_bytes,
-            effects,
-            effects_bcs,
-            events,
-            events_bcs,
+            sequence_number: None,
+            digest: None,
+            read_mask: None,
         }
     }
-}
 
-impl From<GetTransactionOptions> for crate::types::GetTransactionOptions {
-    fn from(
-        GetTransactionOptions {
-            transaction,
-            transaction_bcs,
-            signatures,
-            signatures_bytes,
-            effects,
-            effects_bcs,
-            events,
-            events_bcs,
-        }: GetTransactionOptions,
-    ) -> Self {
+    pub fn by_digest<T: Into<super::types::Digest>>(digest: T) -> Self {
         Self {
-            transaction,
-            transaction_bcs,
-            signatures,
-            signatures_bytes,
-            effects,
-            effects_bcs,
-            events,
-            events_bcs,
+            sequence_number: None,
+            digest: Some(digest.into()),
+            read_mask: None,
         }
     }
-}
 
-//
-// ExecuteTransactionOptions
-//
-
-impl From<crate::types::ExecuteTransactionOptions> for ExecuteTransactionOptions {
-    fn from(
-        crate::types::ExecuteTransactionOptions {
-            effects,
-            effects_bcs,
-            events,
-            events_bcs,
-            balance_changes,
-        }: crate::types::ExecuteTransactionOptions,
-    ) -> Self {
+    pub fn by_sequence_number(sequence_number: u64) -> Self {
         Self {
-            effects,
-            effects_bcs,
-            events,
-            events_bcs,
-            balance_changes,
+            sequence_number: Some(sequence_number),
+            digest: None,
+            read_mask: None,
         }
     }
-}
 
-impl From<ExecuteTransactionOptions> for crate::types::ExecuteTransactionOptions {
-    fn from(
-        ExecuteTransactionOptions {
-            effects,
-            effects_bcs,
-            events,
-            events_bcs,
-            balance_changes,
-        }: ExecuteTransactionOptions,
-    ) -> Self {
-        Self {
-            effects,
-            effects_bcs,
-            events,
-            events_bcs,
-            balance_changes,
-        }
-    }
-}
-
-//
-// GetFullCheckpointOptions
-//
-
-impl From<crate::types::GetFullCheckpointOptions> for GetFullCheckpointOptions {
-    fn from(
-        crate::types::GetFullCheckpointOptions {
-            summary,
-            summary_bcs,
-            signature,
-            contents,
-            contents_bcs,
-            transaction,
-            transaction_bcs,
-            effects,
-            effects_bcs,
-            events,
-            events_bcs,
-            input_objects,
-            output_objects,
-            object,
-            object_bcs,
-        }: crate::types::GetFullCheckpointOptions,
-    ) -> Self {
-        Self {
-            summary,
-            summary_bcs,
-            signature,
-            contents,
-            contents_bcs,
-            transaction,
-            transaction_bcs,
-            effects,
-            effects_bcs,
-            events,
-            events_bcs,
-            input_objects,
-            output_objects,
-            object,
-            object_bcs,
-        }
-    }
-}
-
-impl From<GetFullCheckpointOptions> for crate::types::GetFullCheckpointOptions {
-    fn from(
-        GetFullCheckpointOptions {
-            summary,
-            summary_bcs,
-            signature,
-            contents,
-            contents_bcs,
-            transaction,
-            transaction_bcs,
-            effects,
-            effects_bcs,
-            events,
-            events_bcs,
-            input_objects,
-            output_objects,
-            object,
-            object_bcs,
-        }: GetFullCheckpointOptions,
-    ) -> Self {
-        Self {
-            summary,
-            summary_bcs,
-            signature,
-            contents,
-            contents_bcs,
-            transaction,
-            transaction_bcs,
-            effects,
-            effects_bcs,
-            events,
-            events_bcs,
-            input_objects,
-            output_objects,
-            object,
-            object_bcs,
-        }
+    pub fn with_read_mask(mut self, read_mask: FieldMask) -> Self {
+        self.read_mask = Some(read_mask);
+        self
     }
 }
 
@@ -474,13 +300,13 @@ impl From<crate::types::TransactionResponse> for GetTransactionResponse {
             timestamp_ms,
         }: crate::types::TransactionResponse,
     ) -> Self {
-        let signatures = signatures.map(|signatures| UserSignatures {
-            signatures: signatures.into_iter().map(Into::into).collect(),
-        });
+        let signatures = signatures
+            .map(|signatures| signatures.into_iter().map(Into::into).collect())
+            .unwrap_or_default();
 
-        let signatures_bytes = signatures_bytes.map(|signatures| UserSignaturesBytes {
-            signatures: signatures.into_iter().map(Into::into).collect(),
-        });
+        let signatures_bytes = signatures_bytes
+            .map(|signatures| signatures.into_iter().map(Into::into).collect())
+            .unwrap_or_default();
 
         Self {
             digest: Some(digest.into()),
@@ -525,23 +351,26 @@ impl TryFrom<&GetTransactionResponse> for crate::types::TransactionResponse {
         let transaction_bcs = transaction_bcs.as_ref().map(Into::into);
 
         let signatures = signatures
-            .as_ref()
-            .map(|signatures| {
-                signatures
-                    .signatures
-                    .iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .transpose()?;
+            .iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let signatures_bytes = signatures_bytes.as_ref().map(|signatures| {
-            signatures
-                .signatures
-                .iter()
-                .map(|bytes| bytes.to_vec())
-                .collect()
-        });
+        let signatures = if signatures.is_empty() {
+            None
+        } else {
+            Some(signatures)
+        };
+
+        let signatures_bytes = signatures_bytes
+            .iter()
+            .map(|bytes| bytes.to_vec())
+            .collect::<Vec<_>>();
+
+        let signatures_bytes = if signatures_bytes.is_empty() {
+            None
+        } else {
+            Some(signatures_bytes)
+        };
 
         let effects = effects.as_ref().map(TryInto::try_into).transpose()?;
         let effects_bcs = effects_bcs.as_ref().map(Into::into);
@@ -795,12 +624,12 @@ impl From<crate::types::FullCheckpointTransaction> for FullCheckpointTransaction
             output_objects,
         }: crate::types::FullCheckpointTransaction,
     ) -> Self {
-        let input_objects = input_objects.map(|objects| FullCheckpointObjects {
-            objects: objects.into_iter().map(Into::into).collect(),
-        });
-        let output_objects = output_objects.map(|objects| FullCheckpointObjects {
-            objects: objects.into_iter().map(Into::into).collect(),
-        });
+        let input_objects = input_objects
+            .map(|objects| objects.into_iter().map(Into::into).collect())
+            .unwrap_or_default();
+        let output_objects = output_objects
+            .map(|objects| objects.into_iter().map(Into::into).collect())
+            .unwrap_or_default();
         Self {
             digest: Some(digest.into()),
             transaction: transaction.map(Into::into),
@@ -846,26 +675,24 @@ impl TryFrom<&FullCheckpointTransaction> for crate::types::FullCheckpointTransac
         let events_bcs = events_bcs.as_ref().map(Into::into);
 
         let input_objects = input_objects
-            .as_ref()
-            .map(|objects| {
-                objects
-                    .objects
-                    .iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-            })
-            .transpose()?;
+            .iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+        let input_objects = if input_objects.is_empty() {
+            None
+        } else {
+            Some(input_objects)
+        };
 
         let output_objects = output_objects
-            .as_ref()
-            .map(|objects| {
-                objects
-                    .objects
-                    .iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-            })
-            .transpose()?;
+            .iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+        let output_objects = if output_objects.is_empty() {
+            None
+        } else {
+            Some(output_objects)
+        };
 
         Self {
             digest,
@@ -897,9 +724,9 @@ impl From<crate::types::ExecuteTransactionResponse> for ExecuteTransactionRespon
             balance_changes,
         }: crate::types::ExecuteTransactionResponse,
     ) -> Self {
-        let balance_changes = balance_changes.map(|balance_changes| BalanceChanges {
-            balance_changes: balance_changes.into_iter().map(Into::into).collect(),
-        });
+        let balance_changes = balance_changes
+            .map(|balance_changes| balance_changes.into_iter().map(Into::into).collect())
+            .unwrap_or_default();
         Self {
             finality: Some(finality.into()),
             effects: effects.map(Into::into),
@@ -936,15 +763,14 @@ impl TryFrom<&ExecuteTransactionResponse> for crate::types::ExecuteTransactionRe
         let events_bcs = events_bcs.as_ref().map(Into::into);
 
         let balance_changes = balance_changes
-            .as_ref()
-            .map(|balance_changes| {
-                balance_changes
-                    .balance_changes
-                    .iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<_, _>>()
-            })
-            .transpose()?;
+            .iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+        let balance_changes = if balance_changes.is_empty() {
+            None
+        } else {
+            Some(balance_changes)
+        };
 
         Self {
             finality,
@@ -962,9 +788,9 @@ impl TryFrom<&ExecuteTransactionResponse> for crate::types::ExecuteTransactionRe
 // EffectsFinality
 //
 
-impl From<crate::types::EffectsFinality> for crate::proto::node::EffectsFinality {
+impl From<crate::types::EffectsFinality> for crate::proto::node::v2::EffectsFinality {
     fn from(value: crate::types::EffectsFinality) -> Self {
-        use crate::proto::node::effects_finality::Finality;
+        use crate::proto::node::v2::effects_finality::Finality;
         use crate::types::EffectsFinality::*;
 
         let finality = match value {
@@ -979,11 +805,11 @@ impl From<crate::types::EffectsFinality> for crate::proto::node::EffectsFinality
     }
 }
 
-impl TryFrom<&crate::proto::node::EffectsFinality> for crate::types::EffectsFinality {
+impl TryFrom<&crate::proto::node::v2::EffectsFinality> for crate::types::EffectsFinality {
     type Error = crate::proto::TryFromProtoError;
 
-    fn try_from(value: &crate::proto::node::EffectsFinality) -> Result<Self, Self::Error> {
-        use crate::proto::node::effects_finality::Finality;
+    fn try_from(value: &crate::proto::node::v2::EffectsFinality) -> Result<Self, Self::Error> {
+        use crate::proto::node::v2::effects_finality::Finality;
 
         match value
             .finality

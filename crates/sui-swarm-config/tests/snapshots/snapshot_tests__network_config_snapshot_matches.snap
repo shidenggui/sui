@@ -1,6 +1,7 @@
 ---
 source: crates/sui-swarm-config/tests/snapshot_tests.rs
 expression: network_config
+snapshot_kind: text
 ---
 validator_configs:
   - protocol-key-pair:
@@ -14,10 +15,7 @@ validator_configs:
     db-path: /tmp/foo/
     network-address: ""
     json-rpc-address: "0.0.0.0:1"
-    enable-experimental-rest-api: true
-    rpc:
-      enable-unstable-apis: true
-      enable-indexing: true
+    rpc: {}
     metrics-address: "0.0.0.0:1"
     admin-interface-port: 8888
     consensus-config:
@@ -46,11 +44,10 @@ validator_configs:
       max-transactions-in-batch: 1000
     end-of-epoch-broadcast-channel-capacity: 128
     checkpoint-executor-config:
-      checkpoint-execution-max-concurrency: 200
+      checkpoint-execution-max-concurrency: 40
       local-execution-timeout-sec: 30
     db-checkpoint-config:
       perform-db-checkpoints-at-epoch-end: false
-    indirect-objects-threshold: 18446744073709551615
     expensive-safety-check-config:
       enable-epoch-sui-conservation-check: false
       enable-deep-per-tx-sui-conservation-check: false
@@ -112,7 +109,6 @@ validator_configs:
         - Apple
         - Arden
         - "AwsTenant-region:eu-west-3-tenant_id:eu-west-3_gGVCx53Es"
-        - "AwsTenant-region:us-east-1-tenant_id:us-east-1_LPSLCkC3A"
         - "AwsTenant-region:us-east-1-tenant_id:us-east-1_qPsZxYqd8"
         - Credenza3
         - Facebook
@@ -168,6 +164,8 @@ validator_configs:
       max-per-pkg-meter-units: ~
       max-back-edges-per-function: ~
       max-back-edges-per-module: ~
+    local-execution-time-channel-capacity: 128
+    local-execution-time-cache-size: 10000
   - protocol-key-pair:
       value: avYcyVgYMXTyaUYh9IRwLK0gSzl7YF6ZQDAbrS1Bhvo=
     worker-key-pair:
@@ -179,10 +177,7 @@ validator_configs:
     db-path: /tmp/foo/
     network-address: ""
     json-rpc-address: "0.0.0.0:1"
-    enable-experimental-rest-api: true
-    rpc:
-      enable-unstable-apis: true
-      enable-indexing: true
+    rpc: {}
     metrics-address: "0.0.0.0:1"
     admin-interface-port: 8888
     consensus-config:
@@ -211,11 +206,10 @@ validator_configs:
       max-transactions-in-batch: 1000
     end-of-epoch-broadcast-channel-capacity: 128
     checkpoint-executor-config:
-      checkpoint-execution-max-concurrency: 200
+      checkpoint-execution-max-concurrency: 40
       local-execution-timeout-sec: 30
     db-checkpoint-config:
       perform-db-checkpoints-at-epoch-end: false
-    indirect-objects-threshold: 18446744073709551615
     expensive-safety-check-config:
       enable-epoch-sui-conservation-check: false
       enable-deep-per-tx-sui-conservation-check: false
@@ -277,7 +271,6 @@ validator_configs:
         - Apple
         - Arden
         - "AwsTenant-region:eu-west-3-tenant_id:eu-west-3_gGVCx53Es"
-        - "AwsTenant-region:us-east-1-tenant_id:us-east-1_LPSLCkC3A"
         - "AwsTenant-region:us-east-1-tenant_id:us-east-1_qPsZxYqd8"
         - Credenza3
         - Facebook
@@ -333,6 +326,8 @@ validator_configs:
       max-per-pkg-meter-units: ~
       max-back-edges-per-function: ~
       max-back-edges-per-module: ~
+    local-execution-time-channel-capacity: 128
+    local-execution-time-cache-size: 10000
   - protocol-key-pair:
       value: OXnx3yM1C/ppgnDMx/o1d49fJs7E05kq11mXNae/O+I=
     worker-key-pair:
@@ -344,10 +339,7 @@ validator_configs:
     db-path: /tmp/foo/
     network-address: ""
     json-rpc-address: "0.0.0.0:1"
-    enable-experimental-rest-api: true
-    rpc:
-      enable-unstable-apis: true
-      enable-indexing: true
+    rpc: {}
     metrics-address: "0.0.0.0:1"
     admin-interface-port: 8888
     consensus-config:
@@ -376,11 +368,10 @@ validator_configs:
       max-transactions-in-batch: 1000
     end-of-epoch-broadcast-channel-capacity: 128
     checkpoint-executor-config:
-      checkpoint-execution-max-concurrency: 200
+      checkpoint-execution-max-concurrency: 40
       local-execution-timeout-sec: 30
     db-checkpoint-config:
       perform-db-checkpoints-at-epoch-end: false
-    indirect-objects-threshold: 18446744073709551615
     expensive-safety-check-config:
       enable-epoch-sui-conservation-check: false
       enable-deep-per-tx-sui-conservation-check: false
@@ -442,7 +433,6 @@ validator_configs:
         - Apple
         - Arden
         - "AwsTenant-region:eu-west-3-tenant_id:eu-west-3_gGVCx53Es"
-        - "AwsTenant-region:us-east-1-tenant_id:us-east-1_LPSLCkC3A"
         - "AwsTenant-region:us-east-1-tenant_id:us-east-1_qPsZxYqd8"
         - Credenza3
         - Facebook
@@ -498,6 +488,8 @@ validator_configs:
       max-per-pkg-meter-units: ~
       max-back-edges-per-function: ~
       max-back-edges-per-module: ~
+    local-execution-time-channel-capacity: 128
+    local-execution-time-cache-size: 10000
   - protocol-key-pair:
       value: CyNkjqNVr3HrHTH7f/NLs7u5lUHJzuPAw0PqMTD2y2s=
     worker-key-pair:
@@ -509,10 +501,7 @@ validator_configs:
     db-path: /tmp/foo/
     network-address: ""
     json-rpc-address: "0.0.0.0:1"
-    enable-experimental-rest-api: true
-    rpc:
-      enable-unstable-apis: true
-      enable-indexing: true
+    rpc: {}
     metrics-address: "0.0.0.0:1"
     admin-interface-port: 8888
     consensus-config:
@@ -541,11 +530,10 @@ validator_configs:
       max-transactions-in-batch: 1000
     end-of-epoch-broadcast-channel-capacity: 128
     checkpoint-executor-config:
-      checkpoint-execution-max-concurrency: 200
+      checkpoint-execution-max-concurrency: 40
       local-execution-timeout-sec: 30
     db-checkpoint-config:
       perform-db-checkpoints-at-epoch-end: false
-    indirect-objects-threshold: 18446744073709551615
     expensive-safety-check-config:
       enable-epoch-sui-conservation-check: false
       enable-deep-per-tx-sui-conservation-check: false
@@ -607,7 +595,6 @@ validator_configs:
         - Apple
         - Arden
         - "AwsTenant-region:eu-west-3-tenant_id:eu-west-3_gGVCx53Es"
-        - "AwsTenant-region:us-east-1-tenant_id:us-east-1_LPSLCkC3A"
         - "AwsTenant-region:us-east-1-tenant_id:us-east-1_qPsZxYqd8"
         - Credenza3
         - Facebook
@@ -663,6 +650,8 @@ validator_configs:
       max-per-pkg-meter-units: ~
       max-back-edges-per-function: ~
       max-back-edges-per-module: ~
+    local-execution-time-channel-capacity: 128
+    local-execution-time-cache-size: 10000
   - protocol-key-pair:
       value: X/I/kM+KvHcxAKEf2UU6Sr7SpN3bhiE9nP5CuM/iIY0=
     worker-key-pair:
@@ -674,10 +663,7 @@ validator_configs:
     db-path: /tmp/foo/
     network-address: ""
     json-rpc-address: "0.0.0.0:1"
-    enable-experimental-rest-api: true
-    rpc:
-      enable-unstable-apis: true
-      enable-indexing: true
+    rpc: {}
     metrics-address: "0.0.0.0:1"
     admin-interface-port: 8888
     consensus-config:
@@ -706,11 +692,10 @@ validator_configs:
       max-transactions-in-batch: 1000
     end-of-epoch-broadcast-channel-capacity: 128
     checkpoint-executor-config:
-      checkpoint-execution-max-concurrency: 200
+      checkpoint-execution-max-concurrency: 40
       local-execution-timeout-sec: 30
     db-checkpoint-config:
       perform-db-checkpoints-at-epoch-end: false
-    indirect-objects-threshold: 18446744073709551615
     expensive-safety-check-config:
       enable-epoch-sui-conservation-check: false
       enable-deep-per-tx-sui-conservation-check: false
@@ -772,7 +757,6 @@ validator_configs:
         - Apple
         - Arden
         - "AwsTenant-region:eu-west-3-tenant_id:eu-west-3_gGVCx53Es"
-        - "AwsTenant-region:us-east-1-tenant_id:us-east-1_LPSLCkC3A"
         - "AwsTenant-region:us-east-1-tenant_id:us-east-1_qPsZxYqd8"
         - Credenza3
         - Facebook
@@ -828,6 +812,8 @@ validator_configs:
       max-per-pkg-meter-units: ~
       max-back-edges-per-function: ~
       max-back-edges-per-module: ~
+    local-execution-time-channel-capacity: 128
+    local-execution-time-cache-size: 10000
   - protocol-key-pair:
       value: N272EiFDyKtxRbDKbyN6ujenJ+skPcRoc/XolpOLGnU=
     worker-key-pair:
@@ -839,10 +825,7 @@ validator_configs:
     db-path: /tmp/foo/
     network-address: ""
     json-rpc-address: "0.0.0.0:1"
-    enable-experimental-rest-api: true
-    rpc:
-      enable-unstable-apis: true
-      enable-indexing: true
+    rpc: {}
     metrics-address: "0.0.0.0:1"
     admin-interface-port: 8888
     consensus-config:
@@ -871,11 +854,10 @@ validator_configs:
       max-transactions-in-batch: 1000
     end-of-epoch-broadcast-channel-capacity: 128
     checkpoint-executor-config:
-      checkpoint-execution-max-concurrency: 200
+      checkpoint-execution-max-concurrency: 40
       local-execution-timeout-sec: 30
     db-checkpoint-config:
       perform-db-checkpoints-at-epoch-end: false
-    indirect-objects-threshold: 18446744073709551615
     expensive-safety-check-config:
       enable-epoch-sui-conservation-check: false
       enable-deep-per-tx-sui-conservation-check: false
@@ -937,7 +919,6 @@ validator_configs:
         - Apple
         - Arden
         - "AwsTenant-region:eu-west-3-tenant_id:eu-west-3_gGVCx53Es"
-        - "AwsTenant-region:us-east-1-tenant_id:us-east-1_LPSLCkC3A"
         - "AwsTenant-region:us-east-1-tenant_id:us-east-1_qPsZxYqd8"
         - Credenza3
         - Facebook
@@ -993,6 +974,8 @@ validator_configs:
       max-per-pkg-meter-units: ~
       max-back-edges-per-function: ~
       max-back-edges-per-module: ~
+    local-execution-time-channel-capacity: 128
+    local-execution-time-cache-size: 10000
   - protocol-key-pair:
       value: a74f03IOjL8ZFSWFChFVEi+wiMwHNwNCPDGIYkGfgjs=
     worker-key-pair:
@@ -1004,10 +987,7 @@ validator_configs:
     db-path: /tmp/foo/
     network-address: ""
     json-rpc-address: "0.0.0.0:1"
-    enable-experimental-rest-api: true
-    rpc:
-      enable-unstable-apis: true
-      enable-indexing: true
+    rpc: {}
     metrics-address: "0.0.0.0:1"
     admin-interface-port: 8888
     consensus-config:
@@ -1036,11 +1016,10 @@ validator_configs:
       max-transactions-in-batch: 1000
     end-of-epoch-broadcast-channel-capacity: 128
     checkpoint-executor-config:
-      checkpoint-execution-max-concurrency: 200
+      checkpoint-execution-max-concurrency: 40
       local-execution-timeout-sec: 30
     db-checkpoint-config:
       perform-db-checkpoints-at-epoch-end: false
-    indirect-objects-threshold: 18446744073709551615
     expensive-safety-check-config:
       enable-epoch-sui-conservation-check: false
       enable-deep-per-tx-sui-conservation-check: false
@@ -1102,7 +1081,6 @@ validator_configs:
         - Apple
         - Arden
         - "AwsTenant-region:eu-west-3-tenant_id:eu-west-3_gGVCx53Es"
-        - "AwsTenant-region:us-east-1-tenant_id:us-east-1_LPSLCkC3A"
         - "AwsTenant-region:us-east-1-tenant_id:us-east-1_qPsZxYqd8"
         - Credenza3
         - Facebook
@@ -1158,6 +1136,8 @@ validator_configs:
       max-per-pkg-meter-units: ~
       max-back-edges-per-function: ~
       max-back-edges-per-module: ~
+    local-execution-time-channel-capacity: 128
+    local-execution-time-cache-size: 10000
 account_keys:
   - Hloy4pnf8pWEHGP+4OFsXz56bLdIJhkD2O+OdKMqCA4=
   - pvMScjoMR/DaN0M5IOxS2VpGC59N6kv6gDm63ufLQ5w=

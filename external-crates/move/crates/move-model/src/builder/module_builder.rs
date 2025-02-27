@@ -42,7 +42,7 @@ pub(crate) struct ModuleBuilder<'env, 'translator> {
     pub module_name: ModuleName,
 }
 
-/// # Entry Points
+// # Entry Points
 
 impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
     pub fn new(
@@ -88,7 +88,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
     }
 }
 
-impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
+impl ModuleBuilder<'_, '_> {
     /// Shortcut for accessing the symbol pool.
     pub fn symbol_pool(&self) -> &SymbolPool {
         self.parent.env.symbol_pool()
@@ -140,9 +140,9 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
     }
 }
 
-/// # Attribute Analysis
+// # Attribute Analysis
 
-impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
+impl ModuleBuilder<'_, '_> {
     pub fn translate_attributes<T: TName>(
         &mut self,
         attrs: &UniqueMap<T, EA::Attribute>,
@@ -245,9 +245,9 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
     }
 }
 
-/// # Declaration Analysis
+// # Declaration Analysis
 
-impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
+impl ModuleBuilder<'_, '_> {
     fn decl_ana(
         &mut self,
         module_def: &EA::ModuleDefinition,
@@ -361,9 +361,9 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
     }
 }
 
-/// # Definition Analysis
+// # Definition Analysis
 
-impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
+impl ModuleBuilder<'_, '_> {
     fn def_ana(&mut self, module_def: &EA::ModuleDefinition) {
         // Analyze all structs.
         for (name, def) in module_def.structs.key_cloned_iter() {
@@ -392,9 +392,9 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
     }
 }
 
-/// ## Struct and Enum Definition Analysis
+// ## Struct and Enum Definition Analysis
 
-impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
+impl ModuleBuilder<'_, '_> {
     fn def_ana_struct(&mut self, name: &PA::DatatypeName, def: &EA::StructDefinition) {
         let qsym = self.qualified_by_module_from_name(&name.0);
         let type_params = self
@@ -412,7 +412,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
         let fields = match &def.fields {
             EA::StructFields::Named(fields) => {
                 let mut field_map = BTreeMap::new();
-                for (_name_loc, field_name_, (idx, ty)) in fields {
+                for (_name_loc, field_name_, (idx, (_, ty))) in fields {
                     let field_sym = et.symbol_pool().make(field_name_);
                     let field_ty = et.translate_type(ty);
                     field_map.insert(field_sym, (*idx, field_ty));
@@ -421,7 +421,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
             }
             EA::StructFields::Positional(tys) => {
                 let mut field_map = BTreeMap::new();
-                for (idx, ty) in tys.iter().enumerate() {
+                for (idx, (_, ty)) in tys.iter().enumerate() {
                     let field_name_ = format!("{idx}");
                     let field_sym = et.symbol_pool().make(&field_name_);
                     let field_ty = et.translate_type(ty);
@@ -460,7 +460,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
                 let variant_fields = match &variant.fields {
                     EA::VariantFields::Named(fields) => {
                         let mut field_map = BTreeMap::new();
-                        for (_name_loc, field_name_, (idx, ty)) in fields {
+                        for (_name_loc, field_name_, (idx, (_, ty))) in fields {
                             let field_sym = et.symbol_pool().make(field_name_);
                             let field_ty = et.translate_type(ty);
                             field_map.insert(field_sym, (*idx, field_ty));
@@ -469,7 +469,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
                     }
                     EA::VariantFields::Positional(tys) => {
                         let mut field_map = BTreeMap::new();
-                        for (idx, ty) in tys.iter().enumerate() {
+                        for (idx, (_, ty)) in tys.iter().enumerate() {
                             let field_name_ = format!("{idx}");
                             let field_sym = et.symbol_pool().make(&field_name_);
                             let field_ty = et.translate_type(ty);
@@ -490,9 +490,9 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
     }
 }
 
-/// ## Move Function Definition Analysis
+// ## Move Function Definition Analysis
 
-impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
+impl ModuleBuilder<'_, '_> {
     /// Definition analysis for Move functions.
     /// If the function is pure, we translate its body.
     fn def_ana_fun(&mut self, name: &PA::FunctionName, body: &EA::FunctionBody) {
@@ -519,9 +519,9 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
     }
 }
 
-/// # Environment Population
+// # Environment Population
 
-impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
+impl ModuleBuilder<'_, '_> {
     fn populate_env_from_result(
         &mut self,
         loc: Loc,

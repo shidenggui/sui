@@ -30,7 +30,7 @@ pub type SuiMoveTypeParameterIndex = u16;
 #[path = "unit_tests/sui_move_tests.rs"]
 mod sui_move_tests;
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 pub enum SuiMoveAbility {
     Copy,
     Drop,
@@ -38,33 +38,33 @@ pub enum SuiMoveAbility {
     Key,
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 pub struct SuiMoveAbilitySet {
     pub abilities: Vec<SuiMoveAbility>,
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 pub enum SuiMoveVisibility {
     Private,
     Public,
     Friend,
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SuiMoveStructTypeParameter {
     pub constraints: SuiMoveAbilitySet,
     pub is_phantom: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 pub struct SuiMoveNormalizedField {
     pub name: String,
     #[serde(rename = "type")]
     pub type_: SuiMoveNormalizedType,
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SuiMoveNormalizedStruct {
     pub abilities: SuiMoveAbilitySet,
@@ -72,15 +72,16 @@ pub struct SuiMoveNormalizedStruct {
     pub fields: Vec<SuiMoveNormalizedField>,
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SuiMoveNormalizedEnum {
     pub abilities: SuiMoveAbilitySet,
     pub type_parameters: Vec<SuiMoveStructTypeParameter>,
-    pub variants: BTreeMap<String, Vec<SuiMoveNormalizedField>>,
+    // NB: Don't use a `BTreeMap` here as we want to keep the declaration order of the variants
+    pub variants: Vec<(String, Vec<SuiMoveNormalizedField>)>,
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 pub enum SuiMoveNormalizedType {
     Bool,
     U8,
@@ -104,7 +105,7 @@ pub enum SuiMoveNormalizedType {
     MutableReference(Box<SuiMoveNormalizedType>),
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SuiMoveNormalizedFunction {
     pub visibility: SuiMoveVisibility,
@@ -114,13 +115,13 @@ pub struct SuiMoveNormalizedFunction {
     pub return_: Vec<SuiMoveNormalizedType>,
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 pub struct SuiMoveModuleId {
     address: String,
     name: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SuiMoveNormalizedModule {
     pub file_format_version: u32,
@@ -246,7 +247,7 @@ impl From<NormalizedEnum> for SuiMoveNormalizedEnum {
                             .collect::<Vec<SuiMoveNormalizedField>>(),
                     )
                 })
-                .collect::<BTreeMap<String, Vec<SuiMoveNormalizedField>>>(),
+                .collect::<Vec<(String, Vec<SuiMoveNormalizedField>)>>(),
         }
     }
 }
@@ -325,14 +326,14 @@ impl From<AbilitySet> for SuiMoveAbilitySet {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 pub enum ObjectValueKind {
     ByImmutableReference,
     ByMutableReference,
     ByValue,
 }
 
-#[derive(Serialize, Deserialize, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Debug, JsonSchema, Clone)]
 pub enum MoveFunctionArgType {
     Pure,
     Object(ObjectValueKind),

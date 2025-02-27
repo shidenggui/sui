@@ -16,12 +16,12 @@ use crate::{
         genesis_blocks, BlockAPI, BlockDigest, BlockRef, BlockTimestampMs, Round, Slot, TestBlock,
         VerifiedBlock,
     },
-    commit::{CommitDigest, TrustedCommit, DEFAULT_WAVE_LENGTH},
+    commit::{CertifiedCommit, CommitDigest, TrustedCommit, DEFAULT_WAVE_LENGTH},
     context::Context,
     dag_state::DagState,
     leader_schedule::{LeaderSchedule, LeaderSwapTable},
     linearizer::{BlockStoreAPI, Linearizer},
-    CommittedSubDag,
+    CommitRef, CommittedSubDag,
 };
 
 /// DagBuilder API
@@ -141,16 +141,69 @@ impl DagBuilder {
         &mut self,
         leader_rounds: RangeInclusive<Round>,
     ) -> Vec<(CommittedSubDag, TrustedCommit)> {
-        let (last_leader_round, mut last_commit_index, mut last_timestamp_ms) =
+        let (last_leader_round, mut last_commit_ref, mut last_timestamp_ms) =
             if let Some((sub_dag, _)) = self.committed_sub_dags.last() {
                 (
                     sub_dag.leader.round,
-                    sub_dag.commit_ref.index,
+                    sub_dag.commit_ref,
                     sub_dag.timestamp_ms,
                 )
             } else {
-                (0, 0, 0)
+                (0, CommitRef::new(0, CommitDigest::MIN), 0)
             };
+
+        struct BlockStorage {
+            gc_round: Round,
+            context: Arc<Context>,
+            blocks: BTreeMap<BlockRef, (VerifiedBlock, bool)>, // the tuple represends the block and whether it is committed
+        }
+        impl BlockStoreAPI for BlockStorage {
+            fn get_blocks(&self, refs: &[BlockRef]) -> Vec<Option<VerifiedBlock>> {
+                refs.iter()
+                    .map(|block_ref| {
+                        self.blocks
+                            .get(block_ref)
+                            .map(|(block, _committed)| block.clone())
+                    })
+                    .collect()
+            }
+
+            fn gc_round(&self) -> Round {
+                self.gc_round
+            }
+
+            fn gc_enabled(&self) -> bool {
+                self.context.protocol_config.gc_depth() > 0
+            }
+
+            fn set_committed(&mut self, block_ref: &BlockRef) -> bool {
+                let Some((block, committed)) = self.blocks.get_mut(block_ref) else {
+                    panic!("Block {:?} should be found in store", block_ref);
+                };
+                if !*committed {
+                    *committed = true;
+                    return true;
+                }
+                false
+            }
+
+            fn is_committed(&self, block_ref: &BlockRef) -> bool {
+                self.blocks
+                    .get(block_ref)
+                    .map(|(_, committed)| *committed)
+                    .expect("Block should be found in store")
+            }
+        }
+        let mut storage = BlockStorage {
+            context: self.context.clone(),
+            blocks: self
+                .blocks
+                .clone()
+                .into_iter()
+                .map(|(k, v)| (k, (v, false)))
+                .collect(),
+            gc_round: 0,
+        };
 
         // Create any remaining committed sub dags
         for leader_block in self
@@ -158,43 +211,20 @@ impl DagBuilder {
             .into_iter()
             .flatten()
         {
+            // set the gc round to the round of the leader block
+            storage.gc_round = leader_block
+                .round()
+                .saturating_sub(1)
+                .saturating_sub(self.context.protocol_config.gc_depth());
+
             let leader_block_ref = leader_block.reference();
-            last_commit_index += 1;
             last_timestamp_ms = leader_block.timestamp_ms().max(last_timestamp_ms);
 
-            struct FooStorage {
-                gc_round: Round,
-                context: Arc<Context>,
-                blocks: BTreeMap<BlockRef, VerifiedBlock>,
-            }
-            impl BlockStoreAPI for FooStorage {
-                fn get_blocks(&self, refs: &[BlockRef]) -> Vec<Option<VerifiedBlock>> {
-                    refs.iter()
-                        .map(|block_ref| self.blocks.get(block_ref).cloned())
-                        .collect()
-                }
-
-                fn gc_round(&self) -> Round {
-                    self.gc_round
-                }
-
-                fn gc_enabled(&self) -> bool {
-                    self.context.protocol_config.gc_depth() > 0
-                }
-            }
-            let storage = FooStorage {
-                context: self.context.clone(),
-                blocks: self.blocks.clone(),
-                gc_round: leader_block
-                    .round()
-                    .saturating_sub(1)
-                    .saturating_sub(self.context.protocol_config.gc_depth()),
-            };
-
             let (to_commit, rejected_transactions) = Linearizer::linearize_sub_dag(
+                &self.context.clone(),
                 leader_block,
                 self.last_committed_rounds.clone(),
-                storage,
+                &mut storage,
             );
 
             // Update the last committed rounds
@@ -204,8 +234,8 @@ impl DagBuilder {
             }
 
             let commit = TrustedCommit::new_for_test(
-                last_commit_index,
-                CommitDigest::MIN,
+                last_commit_ref.index + 1,
+                last_commit_ref.digest,
                 last_timestamp_ms,
                 leader_block_ref,
                 to_commit
@@ -213,6 +243,8 @@ impl DagBuilder {
                     .map(|block| block.reference())
                     .collect::<Vec<_>>(),
             );
+
+            last_commit_ref = commit.reference();
 
             let sub_dag = CommittedSubDag::new(
                 leader_block_ref,
@@ -230,6 +262,21 @@ impl DagBuilder {
             .clone()
             .into_iter()
             .filter(|(sub_dag, _)| leader_rounds.contains(&sub_dag.leader.round))
+            .collect()
+    }
+
+    pub(crate) fn get_sub_dag_and_certified_commits(
+        &mut self,
+        leader_rounds: RangeInclusive<Round>,
+    ) -> Vec<(CommittedSubDag, CertifiedCommit)> {
+        let commits = self.get_sub_dag_and_commits(leader_rounds);
+        commits
+            .into_iter()
+            .map(|(sub_dag, commit)| {
+                let certified_commit =
+                    CertifiedCommit::new_certified(commit, sub_dag.blocks.clone());
+                (sub_dag, certified_commit)
+            })
             .collect()
     }
 
