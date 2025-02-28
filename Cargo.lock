@@ -13190,6 +13190,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sui-display"
+version = "1.44.0"
+dependencies = [
+ "anyhow",
+ "move-core-types",
+ "sui-json-rpc-types",
+ "sui-types",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "sui-e2e-tests"
 version = "1.44.0"
 dependencies = [
@@ -13809,6 +13820,7 @@ dependencies = [
  "diesel-async",
  "fastcrypto",
  "futures",
+ "http 1.1.0",
  "jsonrpsee",
  "move-binary-format",
  "move-core-types",
@@ -13820,6 +13832,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "sui-default-config",
+ "sui-display",
  "sui-indexer-alt-metrics",
  "sui-indexer-alt-schema",
  "sui-json",
@@ -13838,6 +13851,8 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "toml 0.7.4",
+ "tower 0.4.13",
+ "tower-http 0.5.2",
  "tower-layer",
  "tracing",
  "url",
@@ -14995,8 +15010,8 @@ dependencies = [
 
 [[package]]
 name = "sui-sdk-types"
-version = "0.0.1"
-source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=cb174b66714ea643e4b78bbfadb3f9c17e635460#cb174b66714ea643e4b78bbfadb3f9c17e635460"
+version = "0.0.2"
+source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=5e11579031793f086178332219f5847ec94da0c4#5e11579031793f086178332219f5847ec94da0c4"
 dependencies = [
  "base64ct",
  "bcs",
@@ -15011,7 +15026,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "test-strategy",
- "winnow 0.6.20",
+ "winnow 0.7.3",
 ]
 
 [[package]]
@@ -15469,7 +15484,7 @@ dependencies = [
 [[package]]
 name = "sui-transaction-builder"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=cb174b66714ea643e4b78bbfadb3f9c17e635460#cb174b66714ea643e4b78bbfadb3f9c17e635460"
+source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=5e11579031793f086178332219f5847ec94da0c4#5e11579031793f086178332219f5847ec94da0c4"
 dependencies = [
  "base64ct",
  "bcs",
@@ -18046,6 +18061,15 @@ name = "winnow"
 version = "0.6.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36c1fec1a2bb5866f07c25f68c26e565c4c200aebb96d7e55710c19d3e8ac49b"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "winnow"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e7f4ea97f6f78012141bcdb6a216b2609f0979ada50b20ca5b52dde2eac2bb1"
 dependencies = [
  "memchr",
 ]

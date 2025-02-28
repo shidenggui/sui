@@ -1297,6 +1297,7 @@
               "maxSupportedProtocolVersion": "76",
               "protocolVersion": "6",
               "featureFlags": {
+                "accept_passkey_in_multisig": false,
                 "accept_zklogin_in_multisig": false,
                 "advance_epoch_start_time_in_safe_mode": true,
                 "advance_to_highest_supported_protocol_version": false,
@@ -1350,6 +1351,7 @@
                 "random_beacon": false,
                 "receive_objects": false,
                 "recompute_has_public_transfer_in_execution": false,
+                "record_additional_state_digest_in_prologue": false,
                 "record_consensus_determined_version_assignments_in_prologue": false,
                 "record_consensus_determined_version_assignments_in_prologue_v2": false,
                 "reject_mutable_random_on_entry_functions": false,
@@ -1437,6 +1439,7 @@
                 "config_read_setting_impl_cost_base": null,
                 "config_read_setting_impl_cost_per_byte": null,
                 "consensus_bad_nodes_stake_threshold": null,
+                "consensus_commit_rate_estimation_window_size": null,
                 "consensus_gc_depth": null,
                 "consensus_max_num_transactions_in_block": null,
                 "consensus_max_transaction_size_bytes": null,
@@ -5323,6 +5326,9 @@
   ],
   "components": {
     "schemas": {
+      "AdditionalConsensusStateDigest": {
+        "$ref": "#/components/schemas/Digest"
+      },
       "Authenticator": {
         "oneOf": [
           {
@@ -5695,6 +5701,18 @@
             "properties": {
               "ZkLogin": {
                 "$ref": "#/components/schemas/ZkLoginAuthenticatorAsBytes"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "Passkey"
+            ],
+            "properties": {
+              "Passkey": {
+                "$ref": "#/components/schemas/PasskeyAuthenticatorAsBytes"
               }
             },
             "additionalProperties": false
@@ -8074,6 +8092,9 @@
             "type": "string"
           }
         }
+      },
+      "PasskeyAuthenticatorAsBytes": {
+        "$ref": "#/components/schemas/Base64"
       },
       "ProtocolConfig": {
         "type": "object",
@@ -10793,6 +10814,55 @@
                 "type": "string",
                 "enum": [
                   "ConsensusCommitPrologueV3"
+                ]
+              },
+              "round": {
+                "$ref": "#/components/schemas/BigInt_for_uint64"
+              },
+              "sub_dag_index": {
+                "default": null,
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/BigInt_for_uint64"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "additional_state_digest",
+              "commit_timestamp_ms",
+              "consensus_commit_digest",
+              "consensus_determined_version_assignments",
+              "epoch",
+              "kind",
+              "round"
+            ],
+            "properties": {
+              "additional_state_digest": {
+                "$ref": "#/components/schemas/AdditionalConsensusStateDigest"
+              },
+              "commit_timestamp_ms": {
+                "$ref": "#/components/schemas/BigInt_for_uint64"
+              },
+              "consensus_commit_digest": {
+                "$ref": "#/components/schemas/ConsensusCommitDigest"
+              },
+              "consensus_determined_version_assignments": {
+                "$ref": "#/components/schemas/ConsensusDeterminedVersionAssignments"
+              },
+              "epoch": {
+                "$ref": "#/components/schemas/BigInt_for_uint64"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ConsensusCommitPrologueV4"
                 ]
               },
               "round": {
