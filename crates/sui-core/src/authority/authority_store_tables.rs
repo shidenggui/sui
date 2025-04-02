@@ -8,7 +8,7 @@ use std::path::Path;
 use sui_types::accumulator::Accumulator;
 use sui_types::base_types::SequenceNumber;
 use sui_types::digests::TransactionEventsDigest;
-use sui_types::effects::TransactionEffects;
+use sui_types::effects::{TransactionEffects, TransactionEvents};
 use sui_types::storage::{FullObjectKey, MarkerValue};
 use tracing::error;
 use typed_store::metrics::SamplingInterval;
@@ -99,6 +99,9 @@ pub struct AuthorityPerpetualTables {
     // TODO: Figure out what to do with this table in the long run.
     // Also we need a pruning policy for this table. We can prune this table along with tx/effects.
     pub(crate) events: DBMap<(TransactionEventsDigest, usize), Event>,
+
+    // Events keyed by the digest of the transaction that produced them.
+    pub(crate) events_2: DBMap<TransactionDigest, TransactionEvents>,
 
     /// DEPRECATED in favor of the table of the same name in authority_per_epoch_store.
     /// Please do not add new accessors/callsites.
@@ -415,12 +418,12 @@ impl AuthorityPerpetualTables {
     }
 
     pub fn database_is_empty(&self) -> SuiResult<bool> {
-        Ok(self.objects.unbounded_iter().next().is_none())
+        Ok(self.objects.safe_iter().next().is_none())
     }
 
     pub fn iter_live_object_set(&self, include_wrapped_object: bool) -> LiveSetIter<'_> {
         LiveSetIter {
-            iter: self.objects.unbounded_iter(),
+            iter: self.objects.safe_iter(),
             tables: self,
             prev: None,
             include_wrapped_object,
@@ -437,7 +440,7 @@ impl AuthorityPerpetualTables {
         let upper_bound = upper_bound.as_ref().map(ObjectKey::max_for_id);
 
         LiveSetIter {
-            iter: self.objects.iter_with_bounds(lower_bound, upper_bound),
+            iter: self.objects.safe_iter_with_bounds(lower_bound, upper_bound),
             tables: self,
             prev: None,
             include_wrapped_object,
@@ -454,6 +457,7 @@ impl AuthorityPerpetualTables {
         self.objects.unsafe_clear()?;
         self.live_owned_object_markers.unsafe_clear()?;
         self.executed_effects.unsafe_clear()?;
+        self.events_2.unsafe_clear()?;
         self.events.unsafe_clear()?;
         self.executed_transactions_to_checkpoint.unsafe_clear()?;
         self.root_state_hash_by_epoch.unsafe_clear()?;
@@ -463,7 +467,7 @@ impl AuthorityPerpetualTables {
         self.expected_storage_fund_imbalance.unsafe_clear()?;
         self.object_per_epoch_marker_table.unsafe_clear()?;
         self.object_per_epoch_marker_table_v2.unsafe_clear()?;
-        self.objects.rocksdb.flush()?;
+        self.objects.db.flush()?;
         Ok(())
     }
 
@@ -541,7 +545,7 @@ impl ObjectStore for AuthorityPerpetualTables {
 
 pub struct LiveSetIter<'a> {
     iter:
-        <DBMap<ObjectKey, StoreObjectWrapper> as Map<'a, ObjectKey, StoreObjectWrapper>>::Iterator,
+        <DBMap<ObjectKey, StoreObjectWrapper> as Map<'a, ObjectKey, StoreObjectWrapper>>::SafeIterator,
     tables: &'a AuthorityPerpetualTables,
     prev: Option<(ObjectKey, StoreObjectWrapper)>,
     /// Whether a wrapped object is considered as a live object.
@@ -615,7 +619,7 @@ impl Iterator for LiveSetIter<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some((next_key, next_value)) = self.iter.next() {
+            if let Some(Ok((next_key, next_value))) = self.iter.next() {
                 let prev = self.prev.take();
                 self.prev = Some((next_key, next_value));
 

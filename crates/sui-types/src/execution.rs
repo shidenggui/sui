@@ -167,6 +167,25 @@ impl ExecutionResultsV2 {
                 }
             }
 
+            // Record start version for ConsensusV2 objects.
+            if let Owner::ConsensusV2 { start_version, .. } = &mut obj.owner {
+                debug_assert!(!self.deleted_object_ids.contains(id));
+
+                if let Some(Owner::ConsensusV2 {
+                    start_version: previous_start_version,
+                    ..
+                }) = input_objects.get(id).map(|obj| &obj.owner)
+                {
+                    // Assign existing start_version in case a ConsensusV2 object was
+                    // transferred to the same Owner type.
+                    *start_version = *previous_start_version;
+                } else {
+                    // ConsensusV2 object was created, transferred from another Owner type,
+                    // or unwrapped, so we begin a new stream.
+                    *start_version = lamport_version;
+                }
+            }
+
             obj.previous_transaction = prev_tx;
         }
     }
@@ -183,12 +202,13 @@ pub enum ExecutionTimeObservationKey {
         /// The function to be called.
         function: String,
         /// The type arguments to the function.
+        /// NOTE: This field is currently not populated.
         type_arguments: Vec<TypeInput>,
     },
     TransferObjects,
     SplitCoins,
     MergeCoins,
-    Publish,
+    Publish, // special case: should not be used; we only use hard-coded estimate for this
     MakeMoveVec,
     Upgrade,
 }
@@ -230,6 +250,18 @@ impl ExecutionTimeObservationKey {
             Command::Publish(_, _) => ExecutionTimeObservationKey::Publish,
             Command::MakeMoveVec(_, _) => ExecutionTimeObservationKey::MakeMoveVec,
             Command::Upgrade(_, _, _, _) => ExecutionTimeObservationKey::Upgrade,
+        }
+    }
+
+    pub fn default_duration(&self) -> Duration {
+        match self {
+            ExecutionTimeObservationKey::MoveEntryPoint { .. } => Duration::from_millis(1),
+            ExecutionTimeObservationKey::TransferObjects => Duration::from_millis(1),
+            ExecutionTimeObservationKey::SplitCoins => Duration::from_millis(1),
+            ExecutionTimeObservationKey::MergeCoins => Duration::from_millis(1),
+            ExecutionTimeObservationKey::Publish => Duration::from_millis(3),
+            ExecutionTimeObservationKey::MakeMoveVec => Duration::from_millis(1),
+            ExecutionTimeObservationKey::Upgrade => Duration::from_millis(3),
         }
     }
 }

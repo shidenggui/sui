@@ -530,9 +530,10 @@ impl EndOfEpochTransactionKind {
                 }
             }
             Self::StoreExecutionTimeObservations(_) => {
-                if config.per_object_congestion_control_mode()
-                    != PerObjectCongestionControlMode::ExecutionTimeEstimate
-                {
+                if !matches!(
+                    config.per_object_congestion_control_mode(),
+                    PerObjectCongestionControlMode::ExecutionTimeEstimate(_)
+                ) {
                     return Err(UserInputError::Unsupported(
                         "execution time estimation not enabled".to_string(),
                     ));
@@ -1094,24 +1095,21 @@ impl ProgrammableTransaction {
         Ok(())
     }
 
-    fn shared_input_objects(&self) -> impl Iterator<Item = SharedInputObject> + '_ {
-        self.inputs
-            .iter()
-            .filter_map(|arg| match arg {
-                CallArg::Pure(_)
-                | CallArg::Object(ObjectArg::Receiving(_))
-                | CallArg::Object(ObjectArg::ImmOrOwnedObject(_)) => None,
-                CallArg::Object(ObjectArg::SharedObject {
-                    id,
-                    initial_shared_version,
-                    mutable,
-                }) => Some(vec![SharedInputObject {
-                    id: *id,
-                    initial_shared_version: *initial_shared_version,
-                    mutable: *mutable,
-                }]),
-            })
-            .flatten()
+    pub fn shared_input_objects(&self) -> impl Iterator<Item = SharedInputObject> + '_ {
+        self.inputs.iter().filter_map(|arg| match arg {
+            CallArg::Pure(_)
+            | CallArg::Object(ObjectArg::Receiving(_))
+            | CallArg::Object(ObjectArg::ImmOrOwnedObject(_)) => None,
+            CallArg::Object(ObjectArg::SharedObject {
+                id,
+                initial_shared_version,
+                mutable,
+            }) => Some(SharedInputObject {
+                id: *id,
+                initial_shared_version: *initial_shared_version,
+                mutable: *mutable,
+            }),
+        })
     }
 
     fn move_calls(&self) -> Vec<(&ObjectID, &str, &str)> {
@@ -1787,6 +1785,25 @@ impl TransactionData {
         Self::new_programmable(sender, vec![gas_payment], pt, gas_budget, gas_price)
     }
 
+    // TODO: Merge with `new_transfer` above and update existing callers.
+    pub fn new_transfer_full(
+        recipient: SuiAddress,
+        full_object_ref: FullObjectRef,
+        sender: SuiAddress,
+        gas_payment: ObjectRef,
+        gas_budget: u64,
+        gas_price: u64,
+    ) -> Self {
+        let pt = {
+            let mut builder = ProgrammableTransactionBuilder::new();
+            builder
+                .transfer_object_full(recipient, full_object_ref)
+                .unwrap();
+            builder.finish()
+        };
+        Self::new_programmable(sender, vec![gas_payment], pt, gas_budget, gas_price)
+    }
+
     pub fn new_transfer_sui(
         recipient: SuiAddress,
         sender: SuiAddress,
@@ -1888,6 +1905,22 @@ impl TransactionData {
             builder.finish()
         };
         Self::new_programmable(sender, coins, pt, gas_budget, gas_price)
+    }
+
+    pub fn new_split_coin(
+        sender: SuiAddress,
+        coin: ObjectRef,
+        amounts: Vec<u64>,
+        gas_payment: ObjectRef,
+        gas_budget: u64,
+        gas_price: u64,
+    ) -> Self {
+        let pt = {
+            let mut builder = ProgrammableTransactionBuilder::new();
+            builder.split_coin(sender, coin, amounts);
+            builder.finish()
+        };
+        Self::new_programmable(sender, vec![gas_payment], pt, gas_budget, gas_price)
     }
 
     pub fn new_module(
@@ -2945,10 +2978,18 @@ pub enum InputObjectKind {
 
 impl InputObjectKind {
     pub fn object_id(&self) -> ObjectID {
+        self.full_object_id().id()
+    }
+
+    pub fn full_object_id(&self) -> FullObjectID {
         match self {
-            Self::MovePackage(id) => *id,
-            Self::ImmOrOwnedMoveObject((id, _, _)) => *id,
-            Self::SharedMoveObject { id, .. } => *id,
+            Self::MovePackage(id) => FullObjectID::Fastpath(*id),
+            Self::ImmOrOwnedMoveObject((id, _, _)) => FullObjectID::Fastpath(*id),
+            Self::SharedMoveObject {
+                id,
+                initial_shared_version,
+                ..
+            } => FullObjectID::Consensus((*id, *initial_shared_version)),
         }
     }
 
@@ -3002,6 +3043,7 @@ pub enum ObjectReadResultKind {
     Object(Object),
     // The version of the object that the transaction intended to read, and the digest of the tx
     // that deleted it.
+    // TODO: Rename this to something more accurate, like "UnavailableConsensusObject".
     DeletedSharedObject(SequenceNumber, TransactionDigest),
     // A shared object in a cancelled transaction. The sequence number embeds cancellation reason.
     CancelledTransactionSharedObject(SequenceNumber),
